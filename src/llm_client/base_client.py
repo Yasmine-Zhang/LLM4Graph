@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
-from typing import List, Tuple, Dict, Optional, Union
+from typing import List, Tuple, Dict, Optional
 from time import sleep
+
 
 class BaseClient(ABC):
     def __init__(self, config: Dict):

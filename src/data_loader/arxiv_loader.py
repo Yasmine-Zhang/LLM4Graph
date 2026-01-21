@@ -1,7 +1,6 @@
-import os.path as osp
+import os
 import pandas as pd
 import torch
-import os
 from ogb.nodeproppred import PygNodePropPredDataset
 
 # MONKEY PATCH: Fix for PyTorch 2.4+ safe load issue with OGB/PyG
@@ -14,6 +13,7 @@ def _unsafe_load(*args, **kwargs):
         kwargs['weights_only'] = False
     return _original_load(*args, **kwargs)
 torch.load = _unsafe_load
+
 
 class ArxivDataLoader:
     def __init__(self, root='./dataset'):
@@ -69,12 +69,31 @@ class ArxivDataLoader:
             dict: A dictionary where keys are label indices (int) and values are category names (str).
                   e.g., {0: 'arxiv cs.AI', 1: 'arxiv cs.CL', ...}
         """
-        mapping_path = osp.join(self.root, 'ogbn_arxiv', 'mapping', 'labelidx2arxivcategeory.csv.gz')
-        if not osp.exists(mapping_path):
+        mapping_path = os.path.join(self.root, 'ogbn_arxiv', 'mapping', 'labelidx2arxivcategeory.csv.gz')
+        if not os.path.exists(mapping_path):
              return None
         
         df = pd.read_csv(mapping_path)
         return dict(zip(df['label idx'], df['arxiv category']))
+
+    def get_inv_label_map(self) -> dict:
+        """
+        Returns a mapping from standardized category string to label index.
+        Standardizes 'arxiv cs ai' -> 'cs.AI' for consistency with LLM outputs.
+        Example: 'arxiv cs na' -> 'CS.NA'
+        """
+        if not self.label_map:
+            return {}
+        
+        inv_map = {}
+        for idx, cat_str in self.label_map.items():
+            # Logic: 'arxiv cs na' -> 'CS.NA'
+            # 1. Upper case -> 'ARXIV CS NA'
+            # 2. Remove 'ARXIV ' -> 'CS NA'
+            # 3. Replace space with dot -> 'CS.NA'
+            clean_cat = cat_str.upper().replace('ARXIV ', '').replace(' ', '.')
+            inv_map[clean_cat] = idx
+        return inv_map
 
     def get_raw_text(self):
         """
@@ -85,11 +104,11 @@ class ArxivDataLoader:
             List[str]: A list of strings, where each string is the formatted text for a node.
                        order corresponds to the node index.
         """
-        raw_dir = osp.join(self.root, 'ogbn_arxiv', 'raw')
-        mapping_path = osp.join(self.root, 'ogbn_arxiv', 'mapping', 'nodeidx2paperid.csv.gz')
-        text_path = osp.join(raw_dir, 'titleabs.tsv')
+        raw_dir = os.path.join(self.root, 'ogbn_arxiv', 'raw')
+        mapping_path = os.path.join(self.root, 'ogbn_arxiv', 'mapping', 'nodeidx2paperid.csv.gz')
+        text_path = os.path.join(raw_dir, 'titleabs.tsv')
 
-        if not osp.exists(text_path):
+        if not os.path.exists(text_path):
             print(f"Raw text not found at {text_path}. Downloading...")
             from ogb.utils.url import download_url
             import tarfile

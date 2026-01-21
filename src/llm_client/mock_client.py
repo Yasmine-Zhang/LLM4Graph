@@ -1,15 +1,12 @@
 from typing import List, Dict, Tuple
 import random
-import time
-from .base_client import BaseClient
+from src.llm_client.base_client import BaseClient
 
 class MockClient(BaseClient):
     def predict_once(self, messages: List[Dict[str, str]]) -> Tuple[str, float]:
         """
         Simulate an LLM prediction.
         """
-        # Simulate network latency
-        time.sleep(self.sleep_time)
 
         candidates = [
             "cs.NA", "cs.MM", "cs.LO", "cs.CY", "cs.CR", "cs.DC", "cs.HC", "cs.CE",
@@ -21,7 +18,14 @@ class MockClient(BaseClient):
         # Simple Random Pick
         category = random.choice(candidates)
         
-        # Simple Random LogProb (High confidence range: -0.01 to -0.5)
-        log_prob = random.uniform(-0.01, -0.5)
+        # Simple Random LogProb (Simulate varied confidence)
+        # 30% chance of high confidence (> 0.8)
+        # 70% chance of low confidence (< 0.8)
+        if random.random() < 0.3:
+             # High confidence: -0.01 (0.99) to -0.22 (0.80)
+             log_prob = random.uniform(-0.01, -0.22) 
+        else:
+             # Low confidence: -0.23 (0.79) to -5.0 (0.006)
+             log_prob = random.uniform(-0.23, -5.0)
 
         return category, log_prob

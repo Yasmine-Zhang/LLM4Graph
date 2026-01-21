@@ -1,7 +1,8 @@
 import torch
 import torch.nn.functional as F
-from typing import Dict, Optional
-from .model import SimpleGCN
+from typing import Dict
+from src.gnn.model import SimpleGCN
+
 
 class GNNTrainer:
     def __init__(self, config: Dict, num_features: int, num_classes: int):
