@@ -11,9 +11,69 @@ class ArxivDataLoader:
         self.dataset = PygNodePropPredDataset(name='ogbn-arxiv', root=root)
         self.data = self.dataset[0]
         self.split_idx = self.dataset.get_idx_split()
+        self.label_map = self.get_label_mapping()
         self.text = self.get_raw_text()
 
+    def get_formatted_message(self, node_idx: int) -> str:
+        """
+        Generates the message content for a specific node to be sent to the LLM.
+        Directly uses the raw text (Title + Abstract) for now.
+        
+        Args:
+            node_idx (int): The index of the node in the graph.
+            
+        Returns:
+            str: The formatted message string.
+        """
+        # Ensure raw_text is available and index is within bounds
+        if not self.text or node_idx >= len(self.text):
+            return ""
+        return self.text[node_idx]
+
+    def get_system_prompt(self) -> str:
+        """
+        Generates the system prompt that defines the task and output format for the LLM.
+        Includes the list of valid categories from the label mapping.
+        
+        Returns:
+            str: The system prompt string.
+        """
+        label_list_str = "\n".join([f"{k}: {v}" for k, v in self.label_map.items()]) if self.label_map else "No labels available."
+        
+        prompt = (
+            "You are an expert in computer science research paper classification. "
+            "Your task is to predict the category of a paper based on its title and abstract.\n\n"
+            "The available categories are:\n"
+            f"{label_list_str}\n\n"
+            "Please analyze the provided paper and predict the most likely category. "
+            "Output your answer in JSON format with two keys: 'category_id' (int) and 'confidence' (float between 0 and 1)."
+        )
+        return prompt
+
+    def get_label_mapping(self):
+        """
+        Loads the mapping from label index to arxiv category string.
+        
+        Returns:
+            dict: A dictionary where keys are label indices (int) and values are category names (str).
+                  e.g., {0: 'arxiv cs.AI', 1: 'arxiv cs.CL', ...}
+        """
+        mapping_path = osp.join(self.root, 'ogbn_arxiv', 'mapping', 'labelidx2arxivcategeory.csv.gz')
+        if not osp.exists(mapping_path):
+             return None
+        
+        df = pd.read_csv(mapping_path)
+        return dict(zip(df['label idx'], df['arxiv category']))
+
     def get_raw_text(self):
+        """
+        Loads the raw text (title and abstract) for the arxiv papers.
+        Downloads and extracts the data if it doesn't exist.
+        
+        Returns:
+            List[str]: A list of strings, where each string is the formatted text for a node.
+                       order corresponds to the node index.
+        """
         raw_dir = osp.join(self.root, 'ogbn_arxiv', 'raw')
         mapping_path = osp.join(self.root, 'ogbn_arxiv', 'mapping', 'nodeidx2paperid.csv.gz')
         text_path = osp.join(raw_dir, 'titleabs.tsv')
@@ -49,6 +109,13 @@ class ArxivDataLoader:
         return text_list
 
     def get_data(self):
+        """
+        Constructs and returns the PyG Data object for the graph.
+        Includes graph structure, features, labels, masks, and raw text.
+        
+        Returns:
+            torch_geometric.data.Data: The graph data object.
+        """
         from torch_geometric.data import Data
         data = Data(
             x=self.data.x, 
@@ -65,6 +132,16 @@ class ArxivDataLoader:
         return data
 
     def _idx_to_mask(self, num_nodes, idx):
+        """
+        Helper method to convert index tensor to boolean mask.
+        
+        Args:
+            num_nodes (int): Total number of nodes.
+            idx (torch.Tensor): Tensor of indices to be set to True.
+            
+        Returns:
+            torch.Tensor: Boolean mask of shape (num_nodes,).
+        """
         mask = torch.zeros(num_nodes, dtype=torch.bool)
         mask[idx] = True
         return mask
