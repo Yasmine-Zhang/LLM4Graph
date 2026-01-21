@@ -18,7 +18,6 @@ torch.load = _unsafe_load
 class ArxivDataLoader:
     def __init__(self, root='./dataset'):
         self.root = root
-        print("Loading OGB graph structure...")
         self.dataset = PygNodePropPredDataset(name='ogbn-arxiv', root=root)
         self.data = self.dataset[0]
         self.split_idx = self.dataset.get_idx_split()

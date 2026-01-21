@@ -27,7 +27,6 @@ class GNNTrainer:
         
         # Optimizer
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr)
-        print(f"GNN Trainer Initialized: {self.model}")
 
     def train(self, data, train_mask) -> float:
         """

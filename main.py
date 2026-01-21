@@ -1,39 +1,79 @@
 import argparse
 import os
 import json
-import shutil
 import torch
 import math
+import numpy as np
 from tqdm import tqdm
 from src.data_loader.arxiv_loader import ArxivDataLoader
 from src.llm_client.get_client import get_client
 from src.gnn.trainer import GNNTrainer
-from src.util.util import load_config, parse_node_text
+from src.util.util import load_config, setup_output_dir, parse_node_text
+from src.util.log import setup_logger
 
 def parse_args():
     parser = argparse.ArgumentParser(description="LLM+Graph TAGs Pipeline")
     parser.add_argument('-c', '--config', required=True, help="Path to config file")
-    parser.add_argument('-e', '--experiment_name', type=str, default=None, help="Experiment name (overrides config)")
+    parser.add_argument('-e', '--experiment', type=str, help="Experiment name (overrides config)")
+    parser.add_argument('--cache', type=str, help="Path to existing LLM prediction cache")
     return parser.parse_args()
 
-def run_llm_inference(config, loader, target_indices, output_dir):
+def prepare_label_mapping(loader):
+    """
+    Prepare Label Mapping (String -> Index) for Pseudo-labeling.
+    Normalize everything to uppercase 'CS.XX' for matching.
+    """
+    label_map_inv = {}
+    if loader.label_map:
+        for idx, cat_str in loader.label_map.items():
+            # Example: 'arxiv cs na' -> 'CS.NA'
+            clean_cat = cat_str.upper().replace('ARXIV ', '').replace(' ', '.')
+            label_map_inv[clean_cat] = idx
+    return label_map_inv
+
+def run_llm_inference(config, loader, target_indices, output_dir, logger, cache_path=None):
     """
     Run LLM inference or load from cache.
-    Returns a dictionary of predictions: {node_idx: {'category': str, 'confidence': float}}
+    Returns a dictionary of predictions: {node_idx: {'llm_predict': str, 'llm_confident': float}}
     """
-    print("Starting LLM Prediction Phase...")
-    llm_cache_path = os.path.join(output_dir, "llm_predict.json")
+    logger.info("Starting LLM Prediction Phase...")
+    
+    # Priority 1: User specified cache
+    # Priority 2: Default location in output_dir
+    llm_cache_path = cache_path if cache_path else os.path.join(output_dir, "llm_predict.json")
     
     predictions = {}
     
     if os.path.exists(llm_cache_path):
-        print(f"Loading LLM predictions from cache: {llm_cache_path}")
+        logger.info(f"Loading LLM predictions from cache: {llm_cache_path}")
         with open(llm_cache_path, 'r') as f:
             predictions = json.load(f)
             # Convert dictionary keys back to integers (JSON keys are strings)
-            predictions = {int(k): v for k, v in predictions.items()}
+            # Ensure compatibility with both old and new format (if any legacy cache exists)
+            # New format uses: llm_predict, llm_confident
+            # Old format used: category, confidence
+            
+            clean_preds = {}
+            for k, v in predictions.items():
+                node_idx = int(k)
+                # Normalize keys
+                cat = v.get('llm_predict', v.get('category'))
+                conf = v.get('llm_confident', v.get('confidence'))
+                clean_preds[node_idx] = {
+                    "llm_predict": cat,
+                    "llm_confident": conf
+                }
+            predictions = clean_preds
+            
     else:
-        print("No cache found. Running LLM inference...")
+        logger.info(f"No cache found at {llm_cache_path}. Running LLM inference...")
+        
+        # If writing new cache, always save to the output_dir, even if user provided a custom path input
+        # Reason: Not to overwrite external cache, but save current run's results locally.
+        # But wait, if user provided a cache and it didn't exist, maybe they want to save there?
+        # Usually user provides cache solely for READING shared results. 
+        # Let's stick to saving in the current experiment output dir.
+        save_path = os.path.join(output_dir, "llm_predict.json")
         
         # Setup Client
         llm_conf = config['llm']
@@ -52,32 +92,32 @@ def run_llm_inference(config, loader, target_indices, output_dir):
             pred_cat, log_prob = client.predict(message=message, candidates=candidates)
             
             predictions[idx] = {
-                "category": pred_cat,
-                "confidence": log_prob
+                "llm_predict": pred_cat,
+                "llm_confident": log_prob
             }
             
         # Save Cache
-        with open(llm_cache_path, 'w') as f:
+        with open(save_path, 'w') as f:
             json.dump(predictions, f, indent=2)
-        print("LLM predictions saved.")
+        logger.info(f"LLM predictions saved to {save_path}")
         
     return predictions
 
-def generate_pseudo_labels(predictions, label_map_inv, threshold):
+def generate_pseudo_labels(predictions, label_map_inv, threshold, logger):
     """
     Filter predictions by confidence threshold and map to class indices.
     Returns lists of indices and labels.
     """
-    print("Filtering and Augmenting Training Set...")
+    logger.info("Filtering and Augmenting Training Set...")
     pseudo_labels = []
     pseudo_indices = []
     
     for idx, res in predictions.items():
-        prob = math.exp(res['confidence'])
+        prob = math.exp(res['llm_confident'])
         
         if prob >= threshold:
             # Normalize prediction to match label_map_inv keys (e.g. 'CS.NA')
-            pred_cat_norm = res['category'].upper()
+            pred_cat_norm = res['llm_predict'].upper()
             
             if pred_cat_norm in label_map_inv:
                 cat_idx = label_map_inv[pred_cat_norm]
@@ -86,15 +126,15 @@ def generate_pseudo_labels(predictions, label_map_inv, threshold):
             else:
                 pass
                 
-    print(f"Added {len(pseudo_indices)} pseudo-labels (Threshold: {threshold})")
+    logger.info(f"Added {len(pseudo_indices)} pseudo-labels (Threshold: {threshold})")
     return pseudo_indices, pseudo_labels
 
-def train_gnn_model(config, data, train_mask, num_classes, output_dir):
+def train_gnn_model(config, data, train_mask, num_classes, output_dir, logger):
     """
     Initialize and train the GNN model.
     Returns the trained trainer instance (model is inside).
     """
-    print("Starting GNN Training...")
+    logger.info("Starting GNN Training...")
     num_features = data.x.shape[1]
     
     gnn_config = config['gnn']
@@ -109,15 +149,15 @@ def train_gnn_model(config, data, train_mask, num_classes, output_dir):
     # Save Model
     model_path = os.path.join(output_dir, "gnn_model.pt")
     trainer.save(model_path)
-    print(f"GNN Model saved to {model_path}")
+    logger.info(f"GNN Model saved to {model_path}")
     
     return trainer
 
-def evaluate_and_save(trainer, data, split_idx, loader, predictions, pseudo_indices, output_dir):
+def evaluate_and_save(trainer, data, split_idx, loader, predictions, pseudo_indices, output_dir, logger):
     """
     Run final inference, calculate metrics, and save results.
     """
-    print("Running Final Inference...")
+    logger.info("Running Final Inference...")
     
     all_preds = trainer.predict(data) # [num_nodes] class indices
     
@@ -133,7 +173,7 @@ def evaluate_and_save(trainer, data, split_idx, loader, predictions, pseudo_indi
     total_count = len(test_idx_np)
     test_acc = test_correct / total_count
     
-    print(f"Final Test Accuracy: {test_acc:.4f}")
+    logger.info(f"Final Test Accuracy: {test_acc:.4f}")
     
     # Save Results
     results = {
@@ -183,22 +223,22 @@ def evaluate_and_save(trainer, data, split_idx, loader, predictions, pseudo_indi
     with open(results_path, 'w') as f:
         json.dump(results, f, indent=2)
         
-    print(f"Results saved to {results_path}")
+    logger.info(f"Results saved to {results_path}")
 
 def main():
     args = parse_args()
     config = load_config(args.config)
     
-    exp_name = args.experiment_name if args.experiment_name else config['experiment']['name']
-    print(f"Starting Experiment: {exp_name}")
+    exp_name = args.experiment if args.experiment else config['experiment']['name']
     
-    output_dir = os.path.join("output", exp_name)
-    os.makedirs(output_dir, exist_ok=True)
-    shutil.copy(args.config, os.path.join(output_dir, "config.yaml"))
-    print(f"Output Directory: {output_dir}")
+    output_dir = setup_output_dir(config, exp_name, args.config)
+    logger, log_file = setup_logger(output_dir)
+    
+    logger.info(f"Starting Experiment: {exp_name}")
+    logger.info(f"Output Directory: {output_dir}")
     
     # 1. Data Loading
-    print("Loading Data...")
+    logger.info("Loading Data...")
     loader = ArxivDataLoader(root=config['dataset']['root'])
     data = loader.get_data()
     
@@ -210,11 +250,11 @@ def main():
     split_idx = loader.split_idx
     target_indices = split_idx['test'].tolist()
     
-    predictions = run_llm_inference(config, loader, target_indices, output_dir)
+    predictions = run_llm_inference(config, loader, target_indices, output_dir, logger, cache_path=args.cache)
 
     # 3. Filtering and Augmentation
     threshold = config['pipeline']['confidence_threshold']
-    pseudo_indices, pseudo_labels = generate_pseudo_labels(predictions, label_map_inv, threshold)
+    pseudo_indices, pseudo_labels = generate_pseudo_labels(predictions, label_map_inv, threshold, logger)
     
     # Prepare Augmented Data for GNN Training
     train_idx = split_idx['train']
@@ -235,14 +275,14 @@ def main():
         data.y[pseudo_indices] = pseudo_tensor
     
     # 4. GNN Training
-    trainer = train_gnn_model(config, data, train_mask, loader.dataset.num_classes, output_dir)
+    trainer = train_gnn_model(config, data, train_mask, loader.dataset.num_classes, output_dir, logger)
     
     # 5. Inference & Evaluation
     # Restore original labels for correct evaluation
     data.y = original_y
-    evaluate_and_save(trainer, data, split_idx, loader, predictions, pseudo_indices, output_dir)
+    evaluate_and_save(trainer, data, split_idx, loader, predictions, pseudo_indices, output_dir, logger)
 
-    print("Pipeline Completed.")
+    logger.info("Pipeline Completed.")
 
 if __name__ == "__main__":
     main()
