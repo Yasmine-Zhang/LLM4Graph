@@ -4,6 +4,17 @@ import torch
 import os
 from ogb.nodeproppred import PygNodePropPredDataset
 
+# MONKEY PATCH: Fix for PyTorch 2.4+ safe load issue with OGB/PyG
+# OGB uses torch.load() which defaults to weights_only=True in newer PyTorch versions,
+# breaking the loading of complex PyG data objects.
+_original_load = torch.load
+def _unsafe_load(*args, **kwargs):
+    # Only inject weights_only=False if it's not already specified
+    if 'weights_only' not in kwargs:
+        kwargs['weights_only'] = False
+    return _original_load(*args, **kwargs)
+torch.load = _unsafe_load
+
 class ArxivDataLoader:
     def __init__(self, root='./dataset'):
         self.root = root

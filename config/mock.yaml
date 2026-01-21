@@ -10,6 +10,48 @@ dataset:
   name: "ogbn-arxiv"
   root: "./dataset"
   
+  categories: 
+    - cs.NA
+    - cs.MM
+    - cs.LO
+    - cs.CY
+    - cs.CR
+    - cs.DC
+    - cs.HC
+    - cs.CE
+    - cs.NI
+    - cs.CC
+    - cs.AI
+    - cs.MA
+    - cs.GL
+    - cs.NE
+    - cs.SC
+    - cs.AR
+    - cs.CV
+    - cs.GR
+    - cs.ET
+    - cs.SY
+    - cs.CG
+    - cs.OH
+    - cs.PL
+    - cs.SE
+    - cs.LG
+    - cs.SD
+    - cs.SI
+    - cs.RO
+    - cs.IT
+    - cs.PF
+    - cs.CL
+    - cs.IR
+    - cs.MS
+    - cs.FL
+    - cs.DS
+    - cs.OS
+    - cs.GT
+    - cs.DB
+    - cs.DL
+    - cs.DM
+  
   system_prompt: |
     You are an expert researcher and librarian specialized in classifying arXiv Computer Science papers.
     Your task is to classify a paper into exactly one of the 40 arXiv CS categories based on its title and abstract.
@@ -81,6 +123,7 @@ dataset:
 llm:
   name: "Qwen/Qwen2.5-7B-Instruct"
   type: "MockClient" 
+  return_logprobs: true
 
   think: false
   do_sample: false
@@ -88,6 +131,16 @@ llm:
   top_p: 1.0
   max_new_tokens: 8
   repetition_penalty: 1.0
+  max_attempts: 10
+  sleep_time: 0.1
 
 gnn:
-  xxxxx
+  # type: "MockGNNTrainer" # Removing type logic since we now use a single standard Trainer
+  model_name: "GCN" # Kept for record, though code uses SimpleGCN
+  hidden_channels: 256
+  num_layers: 3
+  dropout: 0.5
+  lr: 0.01
+  epochs: 10
+  device: "cuda:0"
+
