@@ -202,6 +202,81 @@ def evaluate_and_save(trainer, data, split_idx, loader, predictions, pseudo_indi
         "correct_count": int(total_correct),
         "total_count": int(total_count)
     }
+    
+    # 3. Data Statistics (GNN Training vs Inference)
+    pseudo_count = len(pseudo_indices)
+    metrics['data_stats'] = {
+        "total_nodes": int(total_count),
+        "pseudo_label_count": int(pseudo_count),
+        "pseudo_label_ratio": float(pseudo_count / total_count) if total_count > 0 else 0.0,
+        "inference_only_count": int(total_count - pseudo_count)
+    }
+    logger.info(f"[DATA STATS] Pseudo-Labels (High Conf): {pseudo_count} ({pseudo_count/total_count:.2%}) | Unlabeled (Low Conf): {total_count - pseudo_count}")
+
+    # 4. Mechanism Analysis: High-Confidence (Teacher) vs Low-Confidence (Student)
+    # We want to see if GNN improves upon LLM in the Low-Confidence region.
+    
+    # Create a set for fast lookup
+    high_conf_set = set(pseudo_indices)
+    
+    # Initialize trackers
+    stats = {
+        "high_conf": {"correct_llm": 0, "correct_gnn": 0, "total": 0},
+        "low_conf":  {"correct_llm": 0, "correct_gnn": 0, "total": 0}
+    }
+    
+    for idx_val in range(data.num_nodes):
+        idx = int(idx_val)
+        gt_val = gt[idx]
+        gnn_val = final_preds[idx]
+        
+        # Get LLM prediction
+        llm_res = predictions.get(idx, {})
+        llm_cat_str = llm_res.get('llm_predict', llm_res.get('category'))
+        
+        # We need to map LLM string prediction back to index to verify accuracy
+        # Note: This relies on label_map_inv being available or re-derivable
+        # But wait, run_llm_inference saves strings. We need to normalize them to compare with GT index.
+        # This part is tricky if we don't have the inv map handy here.
+        # Fortunately, we can pass label_map_inv or verify using existing loader logic.
+        # But 'evaluate' receives 'loader'.
+        
+        llm_correct = False
+        if llm_cat_str:
+             # Normalize prompt output to standard key (CS.AI)
+             clean_cat = str(llm_cat_str).upper()
+             # We need the invert map. Re-generate it locally for safety
+             inv_map = prepare_label_mapping(loader) 
+             if clean_cat in inv_map:
+                 llm_pred_idx = inv_map[clean_cat]
+                 if llm_pred_idx == gt_val:
+                     llm_correct = True
+        
+        gnn_correct = (gnn_val == gt_val)
+        
+        group = "high_conf" if idx in high_conf_set else "low_conf"
+        
+        stats[group]["total"] += 1
+        if llm_correct: stats[group]["correct_llm"] += 1
+        if gnn_correct: stats[group]["correct_gnn"] += 1
+
+    # Calculate and Log Mechanism Metrics
+    metrics['mechanism_analysis'] = {}
+    for group in ["high_conf", "low_conf"]:
+        total = stats[group]["total"]
+        if total > 0:
+            llm_acc = stats[group]["correct_llm"] / total
+            gnn_acc = stats[group]["correct_gnn"] / total
+            metrics['mechanism_analysis'][group] = {
+                "llm_accuracy": float(llm_acc * 100),
+                "gnn_accuracy": float(gnn_acc * 100),
+                "gnn_gain": float((gnn_acc - llm_acc) * 100),
+                "total_count": int(total)
+            }
+            logger.info(f"[{group.upper()}] LLM Acc: {llm_acc:.4f} | GNN Acc: {gnn_acc:.4f} | Gain: {gnn_acc - llm_acc:+.4f}")
+        else:
+            logger.info(f"[{group.upper()}] No samples.")
+
     logger.info(f"[OVERALL] Accuracy: {total_acc:.4f} ({total_correct}/{total_count})")
 
     # --- Detailed Results ---
