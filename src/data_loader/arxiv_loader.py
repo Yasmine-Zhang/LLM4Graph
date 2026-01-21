@@ -108,7 +108,6 @@ class ArxivDataLoader:
         text_path = os.path.join(raw_dir, 'titleabs.tsv')
 
         if not os.path.exists(text_path):
-            print(f"Raw text not found at {text_path}. Downloading...")
             from ogb.utils.url import download_url
             import tarfile
             
@@ -117,12 +116,8 @@ class ArxivDataLoader:
             file_path = download_url(url, raw_dir)
             
             # Extract
-            print("Extracting tarball...")
             with tarfile.open(file_path, "r:gz") as tar:
                 tar.extractall(path=raw_dir)
-            print("Download and extraction complete.")
-
-        print("Reading raw text and aligning...")
         
         nodeidx2paperid = pd.read_csv(mapping_path)
         raw_text = pd.read_csv(text_path, sep='\t', header=None, names=['paper id', 'title', 'abs'], quoting=3)

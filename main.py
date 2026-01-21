@@ -15,7 +15,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="LLM+Graph TAGs Pipeline")
     parser.add_argument('-c', '--config', required=True, help="Path to config file")
     parser.add_argument('-e', '--experiment', type=str, help="Experiment name (overrides config)")
-    parser.add_argument('--cache', type=str, help="Path to existing LLM prediction cache")
+    parser.add_argument('-l', '--llm_cache', type=str, help="Path to existing LLM prediction cache")
     return parser.parse_args()
 
 def prepare_label_mapping(loader):
@@ -31,7 +31,7 @@ def prepare_label_mapping(loader):
             label_map_inv[clean_cat] = idx
     return label_map_inv
 
-def run_llm_inference(config, loader, target_indices, output_dir, logger, cache_path=None):
+def run_llm_inference(config, loader, target_indices, output_dir, logger, llm_cache=None):
     """
     Run LLM inference or load from cache.
     Returns a dictionary of predictions: {node_idx: {'llm_predict': str, 'llm_confident': float}}
@@ -40,7 +40,7 @@ def run_llm_inference(config, loader, target_indices, output_dir, logger, cache_
     
     # Priority 1: User specified cache
     # Priority 2: Default location in output_dir
-    llm_cache_path = cache_path if cache_path else os.path.join(output_dir, "llm_predict.json")
+    llm_cache_path = llm_cache if llm_cache else os.path.join(output_dir, "llm_predict.json")
     
     predictions = {}
     
@@ -155,62 +155,88 @@ def train_gnn_model(config, data, train_mask, num_classes, output_dir, logger):
 
 def evaluate_and_save(trainer, data, split_idx, loader, predictions, pseudo_indices, output_dir, logger):
     """
-    Run final inference, calculate metrics, and save results.
+    Run final inference, calculate metrics for all splits, and save results.
     """
-    logger.info("Running Final Inference...")
+    logger.info("Running Final Inference (Full Graph)...")
     
     all_preds = trainer.predict(data) # [num_nodes] class indices
     
-    # Calculate Accuracy on Test Set
-    test_idx = split_idx['test']
-    
-    # Move to CPU for numpy operations/saving
+    # Move to CPU for numpy operations
     final_preds = all_preds.cpu().numpy()
     gt = data.y.squeeze().cpu().numpy()
-    test_idx_np = test_idx.cpu().numpy()
     
-    test_correct = (final_preds[test_idx_np] == gt[test_idx_np]).sum()
-    total_count = len(test_idx_np)
-    test_acc = test_correct / total_count
+    # --- Metrics Calculation ---
+    metrics = {}
+    node_to_subset = {} # Map node_idx -> subset_name (train/valid/test)
     
-    logger.info(f"Final Test Accuracy: {test_acc:.4f}")
+    # 1. Split-wise Metrics
+    logger.info("--- Evaluation Metrics ---")
+    for split_name, indices in split_idx.items():
+        if torch.is_tensor(indices):
+            idx_np = indices.cpu().numpy()
+        else:
+            idx_np = np.array(indices)
+            
+        # Record subset for each node
+        for idx in idx_np:
+            node_to_subset[int(idx)] = split_name
+            
+        correct = (final_preds[idx_np] == gt[idx_np]).sum()
+        total = len(idx_np)
+        acc = correct / total if total > 0 else 0.0
+        
+        metrics[split_name] = {
+            "accuracy": float(acc * 100),
+            "correct_count": int(correct),
+            "total_count": int(total)
+        }
+        logger.info(f"[{split_name.upper()}] Accuracy: {acc:.4f} ({correct}/{total})")
+
+    # 2. Overall Metrics
+    total_correct = (final_preds == gt).sum()
+    total_count = len(gt)
+    total_acc = total_correct / total_count
     
-    # Save Results
-    results = {
-        "accuracy": float(test_acc * 100),
-        "correct_count": int(test_correct),
-        "total_count": int(total_count),
-        "results": []
+    metrics['overall'] = {
+        "accuracy": float(total_acc * 100),
+        "correct_count": int(total_correct),
+        "total_count": int(total_count)
     }
+    logger.info(f"[OVERALL] Accuracy: {total_acc:.4f} ({total_correct}/{total_count})")
+
+    # --- Detailed Results ---
+    results_list = []
     
-    target_indices = split_idx['test'].tolist()
-    
-    for idx_val in target_indices:
+    # Helper to get clean category string
+    def get_cat_str(cat_idx):
+        if not loader.label_map:
+            return str(cat_idx)
+        s = loader.label_map.get(cat_idx, str(cat_idx))
+        return str(s).replace('arxiv ', '')
+
+    # Iterate over ALL nodes to log full results
+    for idx_val in tqdm(range(data.num_nodes), desc="Exporting Results"):
         idx = int(idx_val)
         
         # Get LLM prediction info if available
         llm_res = predictions.get(idx, {})
-        llm_cat = llm_res.get('category', None)
-        llm_conf = llm_res.get('confidence', None)
+        # Check keys (support both new and legacy format just in case, though main uses 'llm_predict')
+        llm_cat = llm_res.get('llm_predict', llm_res.get('category'))
+        llm_conf = llm_res.get('llm_confident', llm_res.get('confidence'))
         
         # Get GNN prediction
         gnn_pred_idx = int(final_preds[idx])
         
-        # Helper to get clean category string
-        def get_cat_str(cat_idx):
-            if not loader.label_map:
-                return str(cat_idx)
-            s = loader.label_map.get(cat_idx, str(cat_idx))
-            return s.replace('arxiv ', '') if isinstance(s, str) else s
-
         gnn_cat = get_cat_str(gnn_pred_idx)
         ground_truth_idx = int(gt[idx])
         ground_truth_cat = get_cat_str(ground_truth_idx)
         
         is_correct = bool(gnn_pred_idx == ground_truth_idx)
+        subset_name = node_to_subset.get(idx, "unknown")
 
-        results["results"].append({
+        results_list.append({
             "node_idx": idx,
+            "subset": subset_name,
             "llm_predict": llm_cat,
             "llm_confident": llm_conf,
             "gnn_predict": gnn_cat,
@@ -219,9 +245,14 @@ def evaluate_and_save(trainer, data, split_idx, loader, predictions, pseudo_indi
             "is_correct": is_correct
         })
         
+    final_output = {
+        "metrics": metrics,
+        "results": results_list
+    }
+    
     results_path = os.path.join(output_dir, "results.json")
     with open(results_path, 'w') as f:
-        json.dump(results, f, indent=2)
+        json.dump(final_output, f, indent=2)
         
     logger.info(f"Results saved to {results_path}")
 
@@ -246,22 +277,24 @@ def main():
     # Use the loader's built-in inverse mapping logic (Standardized 'CS.XX' -> Index)
     label_map_inv = loader.get_inv_label_map()
     
-    # Determine target nodes (Test Set)
+    # Determine target nodes (Label-Free: Full Graph)
+    # We predict logic for ALL nodes to find high-confidence anchors anywhere.
     split_idx = loader.split_idx
-    target_indices = split_idx['test'].tolist()
+    target_indices = list(range(data.num_nodes))
     
-    predictions = run_llm_inference(config, loader, target_indices, output_dir, logger, cache_path=args.cache)
+    predictions = run_llm_inference(config, loader, target_indices, output_dir, logger, llm_cache=args.llm_cache)
 
     # 3. Filtering and Augmentation
     threshold = config['pipeline']['confidence_threshold']
     pseudo_indices, pseudo_labels = generate_pseudo_labels(predictions, label_map_inv, threshold, logger)
     
-    # Prepare Augmented Data for GNN Training
-    train_idx = split_idx['train']
-    new_train_idx = torch.cat([
-        train_idx,
-        torch.tensor(pseudo_indices, dtype=torch.long)
-    ])
+    # Prepare Training Data for GNN (Label-Free: Only Pseudo-Labels)
+    # We ignore the original train_idx (Ground Truth) completely.
+    if not pseudo_indices:
+        logger.warning("No pseudo-labels generated! GNN cannot train.")
+        return
+
+    new_train_idx = torch.tensor(pseudo_indices, dtype=torch.long)
     
     train_mask = torch.zeros(data.num_nodes, dtype=torch.bool)
     train_mask[new_train_idx] = True
