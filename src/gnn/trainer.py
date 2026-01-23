@@ -1,5 +1,7 @@
 import torch
 import torch.nn.functional as F
+import os
+import json
 from typing import Dict
 from src.gnn.model import SimpleGCN
 
@@ -85,3 +87,31 @@ class GNNTrainer:
         
     def load(self, path: str):
         self.model.load_state_dict(torch.load(path, map_location=self.device))
+
+    @torch.no_grad()
+    def run_gnn_inference(self, data, output_dir, logger):
+        """
+        Run inference and save predictions to json.
+        """
+        logger.info("Running GNN Inference (Full Graph)...")
+        
+        preds = self.predict(data)
+        preds_np = preds.cpu().numpy()
+        
+        # Optional: Save Logits/Softmax for confidence
+        # logits = self.get_probs(data)
+        # probs = F.softmax(logits, dim=1).cpu().numpy()
+        
+        predictions = {}
+        for idx in range(data.num_nodes):
+            predictions[int(idx)] = {
+                "gnn_predict": int(preds_np[idx]),
+                # "gnn_confidence": float(probs[idx].max()) 
+            }
+            
+        save_path = os.path.join(output_dir, "gnn_predict.json")
+        with open(save_path, 'w') as f:
+            json.dump(predictions, f, indent=2)
+            
+        logger.info(f"GNN Inference completed. Saved to {save_path}")
+        return predictions

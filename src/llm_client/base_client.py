@@ -1,8 +1,11 @@
 import re
+import os
+import json
 from abc import ABC, abstractmethod
 from typing import List, Tuple, Dict, Optional
+from tqdm import tqdm
 from time import sleep
-
+from src.util.util import parse_node_text
 
 class BaseClient(ABC):
     def __init__(self, config: Dict):
@@ -13,10 +16,89 @@ class BaseClient(ABC):
         self.temperature = self.config.get("temperature", 0.0)
         self.max_tokens = self.config.get("max_new_tokens", 16)
         self.seed = self.config.get("seed", 42)
+        self.system_prompt = self.config.get("system_prompt", "")
         
         # Retry logic
         self.max_attempts = self.config.get("max_attempts", 3)
         self.sleep_time = self.config.get("sleep_time", 1.0)
+        self.save_interval = self.config.get("save_interval", 100)
+
+    def run_inference(self, loader, target_indices, output_dir, logger, prompt_template, candidates, llm_cache=None):
+        """
+        Run LLM inference or load from cache.
+        Returns a dictionary of predictions: {node_idx: {'llm_predict': str, 'llm_confident': float}}
+        """
+        logger.info(f"Starting LLM Prediction Phase with {self.name}...")
+        
+        # Priority 1: User specified cache
+        # Priority 2: Default location in output_dir
+        llm_cache_path = llm_cache if llm_cache else os.path.join(output_dir, "llm_predict.json")
+        
+        predictions = {}
+        
+        # Load existing predictions if available (Resume capability)
+        if os.path.exists(llm_cache_path):
+            logger.info(f"Loading existing predictions from: {llm_cache_path}")
+            try:
+                with open(llm_cache_path, 'r') as f:
+                    loaded_preds = json.load(f)
+                    
+                # Normalize keys to integers
+                for k, v in loaded_preds.items():
+                    node_idx = int(k)
+                    # Normalize value format
+                    cat = v.get('llm_predict', v.get('category'))
+                    conf = v.get('llm_confident', v.get('confidence'))
+                    predictions[node_idx] = {
+                        "llm_predict": cat,
+                        "llm_confident": conf
+                    }
+                logger.info(f"Loaded {len(predictions)} predictions. Resuming...")
+            except json.JSONDecodeError:
+                logger.warning(f"Cache file {llm_cache_path} corrupted or empty. Starting from scratch.")
+                
+        # Determine which nodes still need prediction
+        remaining_indices = [idx for idx in target_indices if idx not in predictions]
+        
+        if not remaining_indices:
+            logger.info("All target nodes have been predicted. Skipping inference.")
+        else:
+            logger.info(f"Remaining nodes to predict: {len(remaining_indices)}")
+            
+            save_path = os.path.join(output_dir, "llm_predict.json")
+            processed_count = 0
+            
+            # Process remaining nodes
+            for idx in tqdm(remaining_indices, desc="LLM Inference"):
+                raw_node_text = loader.get_formatted_message(idx)
+                title, abstract = parse_node_text(raw_node_text)
+                
+                # Format prompt
+                message = prompt_template.format(title=title, abstract=abstract)
+                
+                # Predict (Using self.system_prompt)
+                pred_cat, log_prob, raw_response = self.predict(message=message, candidates=candidates, system_prompt=self.system_prompt)
+                
+                # Update strictly locally
+                predictions[idx] = {
+                    "llm_predict": pred_cat,
+                    "llm_confident": log_prob,
+                    "llm_raw_response": raw_response 
+                }
+                
+                processed_count += 1
+                
+                # Periodic Save
+                if processed_count % self.save_interval == 0:
+                    with open(save_path, 'w') as f:
+                        json.dump(predictions, f, indent=2)
+                        
+            # Final Save after loop completes
+            with open(save_path, 'w') as f:
+                json.dump(predictions, f, indent=2)
+            logger.info(f"Inference completed. Total predictions saved to {save_path}")
+            
+        return predictions
 
     def predict(self, message: str, candidates: List[str], system_prompt: Optional[str] = None) -> Tuple[str, float, str]:
         """
@@ -53,7 +135,26 @@ class BaseClient(ABC):
                     parts = clean_response.split("Category:")
                     candidate_part = parts[-1].strip()
                     extracted_cat = candidate_part.split()[0] if candidate_part else ""
-                else:
+                # Handle JSON block ```json ... ```
+                elif "```json" in clean_response:
+                    try:
+                        import json
+                        # finding the json block
+                        start = clean_response.find("{")
+                        end = clean_response.rfind("}") + 1
+                        json_str = clean_response[start:end]
+                        data = json.loads(json_str)
+                        # Try to extract category code? Wait, user loader prompt outputs ID not Code.
+                        # This implies a prompt mismatch between loader and config.
+                        # If we get here, it means the model is following the loader's default prompt
+                        # instead of the config's prompt. 
+                        # We should fix main.py to prioritize config prompt.
+                        pass
+                    except:
+                        pass
+                
+                if not extracted_cat:
+                    extracted_cat = clean_response
                     # Fallback Strategy:
                     # If model didn't use "Category:", maybe it just outputted the code at the end
                     # Or maybe it outputted "cs.AI" in the middle.

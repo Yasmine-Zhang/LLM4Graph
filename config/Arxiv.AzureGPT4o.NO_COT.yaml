@@ -59,6 +59,7 @@ dataset:
     INSTRUCTIONS:
     1. Output ONLY the category code (e.g. cs.NA).
     2. Do NOT provide any explanation or reasoning.
+    3. Do NOT include the category description name.
 
   prompt_template: |
     Please classify the following paper into the single most appropriate PRIMARY category from the list:
@@ -108,7 +109,10 @@ dataset:
     Abstract: "{abstract}"
     
     Which category is the PRIMARY classification?
-    
+
+    Output Format:
+    Category: <cs.XX> (Output ONLY the code, e.g. cs.AI. Do NOT include class name)
+
     Answer:
 
 llm:
@@ -128,7 +132,7 @@ llm:
   repetition_penalty: 1.0
   max_attempts: 10
   sleep_time: 0.1
-  save_interval: 100
+  save_interval: 10
 
 gnn:
   model_name: "GCN" 
