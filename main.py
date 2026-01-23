@@ -17,6 +17,8 @@ def parse_args():
     parser.add_argument('-c', '--config', required=True, help="Path to config file")
     parser.add_argument('-e', '--experiment', type=str, help="Experiment name (overrides config)")
     parser.add_argument('-l', '--llm_cache', type=str, help="Path to existing LLM prediction cache")
+    parser.add_argument('--shard_id', type=int, default=0, help="Shard ID for distributed inference")
+    parser.add_argument('--num_shards', type=int, default=1, help="Total number of shards/GPUs")
     return parser.parse_args()
 
 def prepare_label_mapping(loader):
@@ -106,7 +108,17 @@ def main():
     # Determine target nodes (Label-Free: Full Graph)
     # We predict logic for ALL nodes to find high-confidence anchors anywhere.
     split_idx = loader.split_idx
-    target_indices = list(range(data.num_nodes))
+    all_indices = list(range(data.num_nodes))
+    
+    # Sharding for multi-gpu/parallel inference
+    if args.num_shards > 1:
+        chunk_size = int(math.ceil(len(all_indices) / args.num_shards))
+        start_idx = args.shard_id * chunk_size
+        end_idx = min((args.shard_id + 1) * chunk_size, len(all_indices))
+        target_indices = all_indices[start_idx:end_idx]
+        logger.info(f"Running in Sharded Mode: Shard {args.shard_id}/{args.num_shards} | Nodes {start_idx}-{end_idx} ({len(target_indices)} total)")
+    else:
+        target_indices = all_indices
     
     # Setup Client
     llm_conf = config['llm']

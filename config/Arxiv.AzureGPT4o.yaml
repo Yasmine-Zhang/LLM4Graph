@@ -130,8 +130,8 @@ llm:
   top_p: 1.0
   max_completion_tokens: 20
   repetition_penalty: 1.0
-  max_attempts: 10
-  sleep_time: 0.1
+  max_attempts: 20
+  sleep_time: 5
   save_interval: 10
 
 gnn:
