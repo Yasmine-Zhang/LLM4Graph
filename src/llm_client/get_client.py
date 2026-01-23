@@ -7,12 +7,9 @@ def get_client(config: Dict) -> BaseClient:
     if not isinstance(config, dict):
         raise ValueError(f"Expected config dict, got: {type(config)}")
 
-    llm_type = config.get("type", "MockClient") # Default to Transformers if missing
+    llm_type = config.get("type", "AzureGPT") # Default to AzureGPT if missing
     
-    if llm_type == "MockClient":
-        from src.llm_client.mock_client import MockClient
-        llm_client = MockClient(config=config)
-    elif llm_type == "AzureGPT":
+    if llm_type == "AzureGPT":
         from src.llm_client.azure_gpt import AzureGPTClient
         llm_client = AzureGPTClient(config=config)
     else:
