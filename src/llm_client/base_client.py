@@ -94,7 +94,8 @@ class BaseClient(ABC):
                 if processed_count % self.save_interval == 0:
                     with open(save_path, 'w') as f:
                         json.dump(predictions, f, indent=2)
-                        
+                    logger.info(f"Progress Checkpoint: Processed {processed_count}/{len(remaining_indices)} nodes. Saved predictions into {save_path}")
+
             # Final Save after loop completes
             with open(save_path, 'w') as f:
                 json.dump(predictions, f, indent=2)

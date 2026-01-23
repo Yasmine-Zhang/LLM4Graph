@@ -12,6 +12,9 @@ def get_client(config: Dict) -> BaseClient:
     if llm_type == "AzureGPT":
         from src.llm_client.azure_gpt import AzureGPTClient
         llm_client = AzureGPTClient(config=config)
+    elif llm_type == "TransformersClient":
+        from src.llm_client.transformers_client import TransformersClient
+        llm_client = TransformersClient(config=config)
     else:
         raise ValueError(f"Unknown client type: {llm_type}")
     return llm_client
