@@ -49,9 +49,11 @@ class BaseClient(ABC):
                     # Normalize value format
                     cat = v.get('llm_predict', v.get('category'))
                     conf = v.get('llm_confident', v.get('confidence'))
+                    raw = v.get('llm_raw_response', "")
                     predictions[node_idx] = {
                         "llm_predict": cat,
-                        "llm_confident": conf
+                        "llm_confident": conf,
+                        "llm_raw_response": raw
                     }
                 logger.info(f"Loaded {len(predictions)} predictions. Resuming...")
             except json.JSONDecodeError:
