@@ -3,6 +3,7 @@ from typing import Dict
 import pandas as pd
 import torch
 from ogb.nodeproppred import PygNodePropPredDataset
+from src.data_loader.base_loader import BaseDataLoader
 
 # MONKEY PATCH: Fix for PyTorch 2.4+ safe load issue with OGB/PyG
 # OGB uses torch.load() which defaults to weights_only=True in newer PyTorch versions,
@@ -16,15 +17,19 @@ def _unsafe_load(*args, **kwargs):
 torch.load = _unsafe_load
 
 
-class ArxivDataLoader:
+class ArxivDataLoader(BaseDataLoader):
     def __init__(self, config: Dict):
-        self.root = config.get('root', 'dataset')
+        super().__init__(config)
         self.dataset = PygNodePropPredDataset(name='ogbn-arxiv', root=self.root)
         self.data = self.dataset[0]
         self.split_idx = self.dataset.get_idx_split()
         self.label_map = self.get_label_mapping()
+        # Initialize raw text
         self.text = self.get_raw_text()
-
+        
+    def get_data(self):
+        return self.data
+    
     def get_formatted_message(self, node_idx: int) -> str:
         """
         Generates the message content for a specific node to be sent to the LLM.
@@ -41,13 +46,10 @@ class ArxivDataLoader:
             return ""
         return self.text[node_idx]
 
-    def get_system_prompt(self) -> str:
+    def _get_default_system_prompt(self) -> str:
         """
         Generates the system prompt that defines the task and output format for the LLM.
         Includes the list of valid categories from the label mapping.
-        
-        Returns:
-            str: The system prompt string.
         """
         label_list_str = "\n".join([f"{k}: {v}" for k, v in self.label_map.items()]) if self.label_map else "No labels available."
         

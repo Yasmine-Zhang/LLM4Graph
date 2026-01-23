@@ -77,7 +77,7 @@ def run_llm_inference(config, loader, target_indices, output_dir, logger, llm_ca
         # Setup Client only if needed
         save_path = os.path.join(output_dir, "llm_predict.json")
         llm_conf = config['llm']
-        llm_conf['system_prompt'] = config['dataset']['system_prompt']
+        llm_conf['system_prompt'] = loader.get_system_prompt()
         client = get_client(llm_conf)
         candidates = config['dataset']['categories']
         prompt_template = config['dataset']['prompt_template']
