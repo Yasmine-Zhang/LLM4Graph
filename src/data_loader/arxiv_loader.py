@@ -1,4 +1,5 @@
 import os
+from typing import Dict
 import pandas as pd
 import torch
 from ogb.nodeproppred import PygNodePropPredDataset
@@ -16,9 +17,9 @@ torch.load = _unsafe_load
 
 
 class ArxivDataLoader:
-    def __init__(self, root='./dataset'):
-        self.root = root
-        self.dataset = PygNodePropPredDataset(name='ogbn-arxiv', root=root)
+    def __init__(self, config: Dict):
+        self.root = config.get('root', 'dataset')
+        self.dataset = PygNodePropPredDataset(name='ogbn-arxiv', root=self.root)
         self.data = self.dataset[0]
         self.split_idx = self.dataset.get_idx_split()
         self.label_map = self.get_label_mapping()

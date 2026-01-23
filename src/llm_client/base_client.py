@@ -1,3 +1,4 @@
+import re
 from abc import ABC, abstractmethod
 from typing import List, Tuple, Dict, Optional
 from time import sleep
@@ -17,10 +18,11 @@ class BaseClient(ABC):
         self.max_attempts = self.config.get("max_attempts", 3)
         self.sleep_time = self.config.get("sleep_time", 1.0)
 
-    def predict(self, message: str, candidates: List[str], system_prompt: Optional[str] = None) -> Tuple[str, float]:
+    def predict(self, message: str, candidates: List[str], system_prompt: Optional[str] = None) -> Tuple[str, float, str]:
         """
         Predicts the class for the message text.
         Retries if the output is not in candidates or API fails.
+        Returns: (predicted_category, confidence_score, full_response_text)
         """
         sys_prompt = system_prompt if system_prompt is not None else ""
         
@@ -29,22 +31,73 @@ class BaseClient(ABC):
             {"role": "user", "content": message}
         ]
         
+        last_response = ""
+        
         for attempt in range(self.max_attempts):
             try:
                 response, log_prob = self.predict_once(messages=messages)
+                last_response = response # Keep track for fallback
                 
-                # Check if response is valid
-                response = response.strip()
-                if response not in candidates:
-                    raise ValueError(f"Output '{response}' not in candidates.")
+                # CoT Parsing Logic
+                # Expected format: "Analysis: ... Category: cs.XX"
+                # Fallback: Just "cs.XX"
                 
-                return response, log_prob
+                clean_response = response.strip()
+                extracted_cat = clean_response
+                
+                # Regex to find "Category: cs.XX" or just "cs.XX" at the end
+                # Pattern: Look for 'cs.[A-Z]{2}' case insensitive
+                # Prioritize 'Category:' marker if present
+                
+                if "Category:" in clean_response:
+                    parts = clean_response.split("Category:")
+                    candidate_part = parts[-1].strip()
+                    extracted_cat = candidate_part.split()[0] if candidate_part else ""
+                else:
+                    # Fallback Strategy:
+                    # If model didn't use "Category:", maybe it just outputted the code at the end
+                    # Or maybe it outputted "cs.AI" in the middle.
+                    pass 
+
+                # Clean up formatting artifacts (punctuation, brackets)
+                if extracted_cat:
+                    extracted_cat = extracted_cat.split(" (")[0].strip()
+                    extracted_cat = extracted_cat.rstrip(".").strip()
+                    if "\n" in extracted_cat:
+                        extracted_cat = extracted_cat.split("\n")[0].strip()
+
+                # Normalize candidates to handle case sensitivity
+                response_lower = extracted_cat.lower()
+                candidates_lower = [c.lower() for c in candidates]
+                
+                if response_lower not in candidates_lower:
+                    err_msg = f"Output '{extracted_cat}' (from '{clean_response}') not in candidates."
+                    # On final attempt, print error to console
+                    if attempt == self.max_attempts - 1:
+                        print(f"[ERROR Final] {err_msg}")
+                    raise ValueError(err_msg)
+                
+                # Restore the correct candidate string format
+                match_idx = candidates_lower.index(response_lower)
+                canonical_response = candidates[match_idx]
+                
+                return canonical_response, log_prob, response
                 
             except Exception as e:
                 sleep(self.sleep_time)
                 continue
 
-        return candidates[0], -999.0
+        # If we failed all attempts, return the last raw response so we can debug it
+        return candidates[0], -999.0, last_response
+
+    @abstractmethod
+    def predict_once(self, messages: List[Dict[str, str]]) -> Tuple[str, float]:
+        """
+        Abstract method to be implemented by clients.
+        Should return (full_text_response, confidence_score).
+        """
+        pass
+
 
     @abstractmethod
     def predict_once(self, messages: List[Dict[str, str]]) -> Tuple[str, float]:

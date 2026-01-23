@@ -5,7 +5,7 @@ import torch
 import math
 import numpy as np
 from tqdm import tqdm
-from src.data_loader.arxiv_loader import ArxivDataLoader
+from src.data_loader.get_dataset import get_dataset
 from src.llm_client.get_client import get_client
 from src.gnn.trainer import GNNTrainer
 from src.util.util import load_config, setup_output_dir, parse_node_text
@@ -44,62 +44,77 @@ def run_llm_inference(config, loader, target_indices, output_dir, logger, llm_ca
     
     predictions = {}
     
+    # Load existing predictions if available (Resume capability)
     if os.path.exists(llm_cache_path):
-        logger.info(f"Loading LLM predictions from cache: {llm_cache_path}")
-        with open(llm_cache_path, 'r') as f:
-            predictions = json.load(f)
-            # Convert dictionary keys back to integers (JSON keys are strings)
-            # Ensure compatibility with both old and new format (if any legacy cache exists)
-            # New format uses: llm_predict, llm_confident
-            # Old format used: category, confidence
-            
-            clean_preds = {}
-            for k, v in predictions.items():
+        logger.info(f"Loading existing predictions from: {llm_cache_path}")
+        try:
+            with open(llm_cache_path, 'r') as f:
+                loaded_preds = json.load(f)
+                
+            # Normalize keys to integers
+            for k, v in loaded_preds.items():
                 node_idx = int(k)
-                # Normalize keys
+                # Normalize value format
                 cat = v.get('llm_predict', v.get('category'))
                 conf = v.get('llm_confident', v.get('confidence'))
-                clean_preds[node_idx] = {
+                predictions[node_idx] = {
                     "llm_predict": cat,
                     "llm_confident": conf
                 }
-            predictions = clean_preds
+            logger.info(f"Loaded {len(predictions)} predictions. Resuming...")
+        except json.JSONDecodeError:
+            logger.warning(f"Cache file {llm_cache_path} corrupted or empty. Starting from scratch.")
             
+    # Determine which nodes still need prediction
+    # target_indices usually contains ALL nodes for transductive setting
+    remaining_indices = [idx for idx in target_indices if idx not in predictions]
+    
+    if not remaining_indices:
+        logger.info("All target nodes have been predicted. Skipping inference.")
     else:
-        logger.info(f"No cache found at {llm_cache_path}. Running LLM inference...")
+        logger.info(f"Remaining nodes to predict: {len(remaining_indices)}")
         
-        # If writing new cache, always save to the output_dir, even if user provided a custom path input
-        # Reason: Not to overwrite external cache, but save current run's results locally.
-        # But wait, if user provided a cache and it didn't exist, maybe they want to save there?
-        # Usually user provides cache solely for READING shared results. 
-        # Let's stick to saving in the current experiment output dir.
+        # Setup Client only if needed
         save_path = os.path.join(output_dir, "llm_predict.json")
-        
-        # Setup Client
         llm_conf = config['llm']
         llm_conf['system_prompt'] = config['dataset']['system_prompt']
         client = get_client(llm_conf)
         candidates = config['dataset']['categories']
         prompt_template = config['dataset']['prompt_template']
         
-        for idx in tqdm(target_indices, desc="LLM Inference"):
+        save_interval = llm_conf.get('save_interval', 100)
+        
+        processed_count = 0
+        
+        # Process remaining nodes
+        for idx in tqdm(remaining_indices, desc="LLM Inference"):
             raw_node_text = loader.get_formatted_message(idx)
             title, abstract = parse_node_text(raw_node_text)
             
             # Format prompt
             message = prompt_template.format(title=title, abstract=abstract)
             
-            pred_cat, log_prob = client.predict(message=message, candidates=candidates)
+            # Predict
+            pred_cat, log_prob, raw_response = client.predict(message=message, candidates=candidates)
             
+            # Update strictly locally
             predictions[idx] = {
                 "llm_predict": pred_cat,
-                "llm_confident": log_prob
+                "llm_confident": log_prob,
+                "llm_raw_response": raw_response # Save for debugging/analysis
             }
             
-        # Save Cache
+            processed_count += 1
+            
+            # Periodic Save
+            if processed_count % save_interval == 0:
+                with open(save_path, 'w') as f:
+                    json.dump(predictions, f, indent=2)
+                    
+        # Final Save after loop completes
         with open(save_path, 'w') as f:
             json.dump(predictions, f, indent=2)
-        logger.info(f"LLM predictions saved to {save_path}")
+        logger.info(f"Inference completed. Total predictions saved to {save_path}")
         
     return predictions
 
@@ -345,7 +360,7 @@ def main():
     
     # 1. Data Loading
     logger.info("Loading Data...")
-    loader = ArxivDataLoader(root=config['dataset']['root'])
+    loader = get_dataset(config)
     data = loader.get_data()
     
     # 2. LLM Prediction

@@ -12,6 +12,9 @@ def get_client(config: Dict) -> BaseClient:
     if llm_type == "MockClient":
         from src.llm_client.mock_client import MockClient
         llm_client = MockClient(config=config)
+    elif llm_type == "AzureGPT":
+        from src.llm_client.azure_gpt import AzureGPTClient
+        llm_client = AzureGPTClient(config=config)
     else:
         raise ValueError(f"Unknown client type: {llm_type}")
     return llm_client
