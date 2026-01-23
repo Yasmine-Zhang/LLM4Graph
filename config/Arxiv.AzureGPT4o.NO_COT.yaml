@@ -1,5 +1,5 @@
 experiment:
-  name: "MockTest-Arxiv-NoCoT"
+  name: "Arxiv.AzureGPT4o.NO_COT"
   seed: 42
   device: "cuda:0"
 
