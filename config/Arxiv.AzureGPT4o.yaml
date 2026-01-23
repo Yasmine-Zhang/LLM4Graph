@@ -1,5 +1,5 @@
 experiment:
-  name: "Arxiv.AzureGPT4o.NO_COT"
+  name: "Arxiv.AzureGPT4o"
   seed: 42
   device: "cuda:0"
 
