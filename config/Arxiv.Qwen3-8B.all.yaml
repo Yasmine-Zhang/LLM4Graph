@@ -6,6 +6,9 @@ experiment:
 data_filter:
   method: "all" # Policy: Trust ALL LLM predictions
 
+ensemble:
+  threshold: 0.99
+
 gnn:
   hidden_channels: 256
   num_layers: 3

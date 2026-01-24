@@ -6,6 +6,9 @@ experiment:
 pipeline:
   confidence_threshold: 0.6  
 
+ensemble:
+  threshold: 0.99
+
 dataset:
   name: "ogbn-arxiv"
   root: "./dataset"

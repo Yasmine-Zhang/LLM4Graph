@@ -10,6 +10,9 @@ data_filter:
   max_n: 1000
   threshold: 0.999 # High threshold for Qwen because it's prone to hallucination
 
+ensemble:
+  threshold: 0.99
+
 dataset:
   name: "ogbn-arxiv"
   root: "./dataset"

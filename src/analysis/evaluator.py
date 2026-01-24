@@ -1,10 +1,11 @@
 import os
 import json
 import torch
+import math
 import numpy as np
 from tqdm import tqdm
 
-def evaluate_results(data, split_idx, loader, output_dir, logger):
+def evaluate_results(data, split_idx, loader, output_dir, logger, config=None):
     """
     Load predictions from disk, compare with Ground Truth, and compute metrics.
     
@@ -14,8 +15,17 @@ def evaluate_results(data, split_idx, loader, output_dir, logger):
         loader: DataLoader instance (for label mapping).
         output_dir: Experiment output directory.
         logger: Logger instance.
+        config: Full configuration dict (optional).
     """
     logger.info("Starting Evaluation & Analysis...")
+    
+    # Ensemble Settings
+    ensemble_active = False
+    threshold = 1.0
+    if config and 'ensemble' in config:
+        ensemble_active = True
+        threshold = config['ensemble'].get('threshold', 0.99)
+        logger.info(f"[Ensemble] Active. Threshold={threshold}. Logic: IF LLM_Conf > Thresh THEN LLM ELSE GNN")
     
     # paths
     llm_path = os.path.join(output_dir, "llm_predict.json")
@@ -93,25 +103,48 @@ def evaluate_results(data, split_idx, loader, output_dir, logger):
         # Resolve LLM info
         llm_res = llm_preds.get(idx, {})
         llm_cat_str = llm_res.get('llm_predict', llm_res.get('category'))
-        llm_conf = llm_res.get('llm_confident', llm_res.get('confidence'))
+        llm_raw_conf = llm_res.get('llm_confident', llm_res.get('confidence', -999))
+        
+        # Normalize confidence (Same logic as selector.py)
+        llm_prob = llm_raw_conf
+        if llm_prob <= 0: # assume logprob
+             llm_prob = math.exp(llm_raw_conf)
+        if llm_prob > 1.0: llm_prob = 1.0
         
         # Resolve GNN info
         gnn_res = gnn_preds.get(idx, {})
         gnn_pred_idx = gnn_res.get('gnn_predict')
         
-        # Determine Final Prediction
-        # Priority: GNN > LLM
+        # Determine Final Prediction strategy
         final_pred_idx = -1
         final_pred_cat = "N/A"
         is_correct = False
         
-        if gnn_res and gnn_pred_idx is not None:
-            # Case A: Have GNN result
+        has_llm = (llm_cat_str is not None)
+        has_gnn = (gnn_res and gnn_pred_idx is not None)
+        
+        use_source = 'none'
+        
+        if has_llm and has_gnn:
+            # Both exist: Check Ensemble
+            if ensemble_active and llm_prob > threshold:
+                use_source = 'llm'
+            else:
+                use_source = 'gnn'
+        elif has_gnn:
+            use_source = 'gnn'
+        elif has_llm:
+            use_source = 'llm'
+            
+        # Apply selection
+        if use_source == 'gnn':
+            # Case A: Use GNN result
             final_pred_idx = int(gnn_pred_idx)
             is_correct = (final_pred_idx == ground_truth_idx)
             final_pred_cat = get_cat_str(final_pred_idx)
-        elif llm_cat_str:
-            # Case B: Only LLM result (Fallback)
+            
+        elif use_source == 'llm':
+            # Case B: Use LLM result
             # Normalize prompt output
             clean_llm = str(llm_cat_str).upper()
             if clean_llm in inv_map:

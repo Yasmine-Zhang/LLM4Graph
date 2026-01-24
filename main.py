@@ -150,7 +150,7 @@ def main():
     # Decoupled analysis step, reads json files and produces results.json
     # Restore original labels for correct evaluation
     data.y = original_y
-    evaluate_results(data, split_idx, loader, output_dir, logger)
+    evaluate_results(data, split_idx, loader, output_dir, logger, config)
 
     logger.info("Pipeline Completed.")
 

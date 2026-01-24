@@ -6,6 +6,9 @@ experiment:
 data_filter:
   method: "supervised"
 
+ensemble:
+  threshold: 0.99
+
 gnn:
   # Standard GCN params
   hidden_channels: 256
