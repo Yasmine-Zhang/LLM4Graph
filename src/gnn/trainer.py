@@ -40,6 +40,9 @@ class GNNTrainer:
         # Here we assume data might be large, passing refs. 
         # For full-batch GCN, we need whole graph on GPU.
         if data.x.device != self.device:
+            # Remove raw_text if present, as it cannot be moved to GPU
+            if hasattr(data, 'raw_text'):
+                del data.raw_text
             data = data.to(self.device)
             
         self.optimizer.zero_grad()

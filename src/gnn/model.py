@@ -7,11 +7,17 @@ class SimpleGCN(torch.nn.Module):
     def __init__(self, in_channels, hidden_channels, out_channels, num_layers, dropout):
         super().__init__()
         self.convs = torch.nn.ModuleList()
+        self.bns = torch.nn.ModuleList()
+        
         # First layer
         self.convs.append(GCNConv(in_channels, hidden_channels))
+        self.bns.append(torch.nn.BatchNorm1d(hidden_channels))
+        
         # Hidden layers
         for _ in range(num_layers - 2):
             self.convs.append(GCNConv(hidden_channels, hidden_channels))
+            self.bns.append(torch.nn.BatchNorm1d(hidden_channels))
+            
         # Output layer
         # Ensure at least 1 layer logic if num_layers=1 could be added, 
         # but usually num_layers >= 2 for GCN
@@ -24,10 +30,10 @@ class SimpleGCN(torch.nn.Module):
         # Iterate over all layers except the last one
         for i, conv in enumerate(self.convs[:-1]):
             x = conv(x, edge_index)
-            # BN/LN could be added here
+            x = self.bns[i](x)  # Apply BatchNorm
             x = F.relu(x)
             x = F.dropout(x, p=self.dropout, training=self.training)
             
-        # Last layer
+        # Last layer (No BatchNorm, No ReLU usually for logits)
         x = self.convs[-1](x, edge_index)
         return x

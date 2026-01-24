@@ -2,6 +2,7 @@ import os
 from typing import Dict
 import pandas as pd
 import torch
+import torch_geometric.transforms as T
 from ogb.nodeproppred import PygNodePropPredDataset
 from src.data_loader.base_loader import BaseDataLoader
 
@@ -20,7 +21,9 @@ torch.load = _unsafe_load
 class ArxivDataLoader(BaseDataLoader):
     def __init__(self, config: Dict):
         super().__init__(config)
-        self.dataset = PygNodePropPredDataset(name='ogbn-arxiv', root=self.root)
+        # Apply ToUndirected transform for Better GCN Performance on OGBN-Arxiv
+        transform = T.ToUndirected()
+        self.dataset = PygNodePropPredDataset(name='ogbn-arxiv', root=self.root, transform=transform)
         self.data = self.dataset[0]
         self.split_idx = self.dataset.get_idx_split()
         self.label_map = self.get_label_mapping()

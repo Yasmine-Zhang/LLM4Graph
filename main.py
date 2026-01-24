@@ -11,6 +11,7 @@ from src.gnn.trainer import GNNTrainer
 from src.analysis.evaluator import evaluate_results
 from src.util.util import load_config, setup_output_dir
 from src.util.log import setup_logger
+from src.data_selector.selector import select_anchors
 
 def parse_args():
     parser = argparse.ArgumentParser(description="LLM+Graph TAGs Pipeline")
@@ -20,45 +21,6 @@ def parse_args():
     parser.add_argument('--shard_id', type=int, default=0, help="Shard ID for distributed inference")
     parser.add_argument('--num_shards', type=int, default=1, help="Total number of shards/GPUs")
     return parser.parse_args()
-
-def prepare_label_mapping(loader):
-    """
-    Prepare Label Mapping (String -> Index) for Pseudo-labeling.
-    Normalize everything to uppercase 'CS.XX' for matching.
-    """
-    label_map_inv = {}
-    if loader.label_map:
-        for idx, cat_str in loader.label_map.items():
-            # Example: 'arxiv cs na' -> 'CS.NA'
-            clean_cat = cat_str.upper().replace('ARXIV ', '').replace(' ', '.')
-            label_map_inv[clean_cat] = idx
-    return label_map_inv
-
-def generate_pseudo_labels(predictions, label_map_inv, threshold, logger):
-    """
-    Filter predictions by confidence threshold and map to class indices.
-    Returns lists of indices and labels.
-    """
-    logger.info("Filtering and Augmenting Training Set...")
-    pseudo_labels = []
-    pseudo_indices = []
-    
-    for idx, res in predictions.items():
-        prob = math.exp(res['llm_confident'])
-        
-        if prob >= threshold:
-            # Normalize prediction to match label_map_inv keys (e.g. 'CS.NA')
-            pred_cat_norm = res['llm_predict'].upper()
-            
-            if pred_cat_norm in label_map_inv:
-                cat_idx = label_map_inv[pred_cat_norm]
-                pseudo_indices.append(idx)
-                pseudo_labels.append(cat_idx)
-            else:
-                pass
-                
-    logger.info(f"Added {len(pseudo_indices)} pseudo-labels (Threshold: {threshold})")
-    return pseudo_indices, pseudo_labels
 
 def train_gnn_model(config, data, train_mask, num_classes, output_dir, logger):
     """
@@ -76,6 +38,10 @@ def train_gnn_model(config, data, train_mask, num_classes, output_dir, logger):
     for epoch in pbar:
         loss = trainer.train(data, train_mask)
         pbar.set_postfix({'loss': f"{loss:.4f}"})
+        
+        # Log to file every 10 epochs
+        if (epoch + 1) % 10 == 0:
+            logger.info(f"Epoch {epoch+1:03d}/{trainer.epochs} | Loss: {loss:.4f}")
         
     # Save Model
     model_path = os.path.join(output_dir, "gnn_model.pt")
@@ -121,44 +87,54 @@ def main():
         target_indices = all_indices
     
     # Setup Client
-    llm_conf = config['llm']
-    # Priority: Config > Loader Default
-    if 'system_prompt' not in config['dataset'] or not config['dataset']['system_prompt']:
-         llm_conf['system_prompt'] = loader.get_system_prompt()
+    if 'llm' in config:
+        llm_conf = config['llm']
+        # Priority: Config > Loader Default
+        if 'system_prompt' not in config['dataset'] or not config['dataset']['system_prompt']:
+             llm_conf['system_prompt'] = loader.get_system_prompt()
+        else:
+             llm_conf['system_prompt'] = config['dataset']['system_prompt']
+             
+        client = get_client(llm_conf)
+        
+        predictions = client.run_inference(
+            loader=loader, 
+            target_indices=target_indices, 
+            output_dir=output_dir, 
+            logger=logger,
+            prompt_template=config['dataset']['prompt_template'],
+            candidates=config['dataset']['categories'],
+            llm_cache=args.llm_cache
+        )
     else:
-         llm_conf['system_prompt'] = config['dataset']['system_prompt']
-         
-    client = get_client(llm_conf)
-    
-    predictions = client.run_inference(
-        loader=loader, 
-        target_indices=target_indices, 
-        output_dir=output_dir, 
-        logger=logger,
-        prompt_template=config['dataset']['prompt_template'],
-        candidates=config['dataset']['categories'],
-        llm_cache=args.llm_cache
-    )
+        logger.info("[INFO] 'llm' config missing. Skipping LLM inference.")
+        predictions = {}
 
     # 3. Filtering and Augmentation
-    threshold = config['pipeline']['confidence_threshold']
-    pseudo_indices, pseudo_labels = generate_pseudo_labels(predictions, label_map_inv, threshold, logger)
+    logger.info("Filtering and Augmenting Training Set...")
+    train_mask = torch.zeros(data.num_nodes, dtype=torch.bool)
+    original_y = data.y.clone()
     
-    # Prepare Training Data for GNN (Label-Free: Only Pseudo-Labels)
-    # We ignore the original train_idx (Ground Truth) completely.
+    # Extract selector config directly
+    selector_config = config.get('data_filter', {})
+    if not selector_config:
+        logger.warning("No 'data_filter' config found! Using defaults or failing.")
+
+    # Call Selector (Pass split_idx and gt_y for supervised strategy)
+    pseudo_indices, pseudo_labels = select_anchors(
+        predictions, label_map_inv, selector_config, logger, 
+        split_idx=split_idx, gt_y=data.y
+    )
+    
     if not pseudo_indices:
         logger.warning("No pseudo-labels generated! GNN cannot train.")
         return
 
     new_train_idx = torch.tensor(pseudo_indices, dtype=torch.long)
-    
-    train_mask = torch.zeros(data.num_nodes, dtype=torch.bool)
     train_mask[new_train_idx] = True
     
-    # Backup original labels
-    original_y = data.y.clone()
-    
-    # Inject pseudo-labels
+    # Inject pseudo-labels (Override data.y for GNN training)
+    # Even if supervised, we do this to ensure data.y matches what GNN expects at train_mask
     if pseudo_indices:
         pseudo_tensor = torch.tensor(pseudo_labels, dtype=torch.long).unsqueeze(1)
         data.y[pseudo_indices] = pseudo_tensor
