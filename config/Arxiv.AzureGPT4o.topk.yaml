@@ -1,10 +1,11 @@
 experiment:
-  name: "Arxiv.AzureGPT4o"
+  name: "Arxiv.AzureGPT4o.topk"
   seed: 42
   device: "cuda:0"
 
-pipeline:
-  confidence_threshold: 0.6  
+data_filter:
+  method: "top_k"
+  k: 300           # Fixed Top-K per class
 
 ensemble:
   threshold: 0.99
@@ -60,8 +61,9 @@ dataset:
     The arXiv dataset is single-label. Your task is to identify the **PRIMARY** category for the paper.
     
     INSTRUCTIONS:
-    1. Analyze the paper's core contribution. If it spans multiple fields, choose the one that best fits the main focus.
-    2. Output the analysis and the category code. Do NOT output the category name.
+    1. Output ONLY the category code (e.g. cs.NA).
+    2. Do NOT provide any explanation or reasoning.
+    3. Do NOT include the category description name.
 
   prompt_template: |
     Please classify the following paper into the single most appropriate PRIMARY category from the list:
@@ -113,8 +115,9 @@ dataset:
     Which category is the PRIMARY classification?
 
     Output Format:
-    Analysis: <brief_reasoning_for_primary_choice>
     Category: <cs.XX> (Output ONLY the code, e.g. cs.AI. Do NOT include class name)
+
+    Answer:
 
 llm:
   name: "AzureGPT-4o"
@@ -129,17 +132,16 @@ llm:
   
   temperature: 0.0      
   top_p: 1.0
-  max_completion_tokens: 1000
+  max_completion_tokens: 20
   repetition_penalty: 1.0
   max_attempts: 20
   sleep_time: 5
   save_interval: 10
 
 gnn:
-  model_name: "GCN" 
+  # Standard GCN params
   hidden_channels: 256
   num_layers: 3
   dropout: 0.5
   lr: 0.01
-  epochs: 10
-  device: "cuda:0"
+  epochs: 500

@@ -170,7 +170,7 @@ def evaluate_results(data, split_idx, loader, output_dir, logger, config=None):
             "node_idx": idx,
             "subset": subset,
             "llm_predict": llm_cat_str,
-            "llm_confident": llm_conf,
+            "llm_confident": llm_raw_conf,
             "gnn_predict": get_cat_str(gnn_pred_idx) if gnn_pred_idx is not None else None,
             "final_predict": final_pred_cat,
             "ground_truth": ground_truth_cat,

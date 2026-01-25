@@ -3,6 +3,7 @@ import os
 import json
 import torch
 import math
+import shutil
 import numpy as np
 from tqdm import tqdm
 from src.llm_client.get_client import get_client
@@ -62,6 +63,20 @@ def main():
     logger.info(f"Starting Experiment: {exp_name}")
     logger.info(f"Output Directory: {output_dir}")
     
+    # Handle LLM Cache Copying
+    if args.llm_cache:
+        if os.path.exists(args.llm_cache):
+            target_cache_path = os.path.join(output_dir, "llm_predict.json")
+            if not os.path.exists(target_cache_path): # Don't overwrite if already exists in output? Or should we?
+                # User specifically asked to use this cache, so we should probably overwrite or ensure it's there.
+                # But let's trigger the copy.
+                shutil.copy(args.llm_cache, target_cache_path)
+                logger.info(f"Copied LLM Cache from {args.llm_cache} to {target_cache_path}")
+            else:
+                 logger.warning(f"Target cache {target_cache_path} already exists. Using existing file instead of {args.llm_cache}")
+        else:
+            logger.error(f"Provided LLM cache path {args.llm_cache} does not exist!")
+
     # 1. Data Loading
     logger.info("Loading Data...")
     loader = get_dataset(config)
@@ -104,7 +119,7 @@ def main():
             logger=logger,
             prompt_template=config['dataset']['prompt_template'],
             candidates=config['dataset']['categories'],
-            llm_cache=args.llm_cache
+            llm_cache=None # modified to use the copied file in output_dir
         )
     else:
         logger.info("[INFO] 'llm' config missing. Skipping LLM inference.")
