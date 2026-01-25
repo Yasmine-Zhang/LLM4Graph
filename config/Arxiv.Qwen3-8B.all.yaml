@@ -18,7 +18,7 @@ gnn:
 
 dataset:
   name: "ogbn-arxiv"
-  root: "./dataset"
+  root: "./data"
   # Prompt template is needed for LLM inference
   prompt_template: "Title: {title}\nAbstract: {abs}\nQuestion: Which arXiv CS sub-category does this paper belong to? Return the category code only."
   

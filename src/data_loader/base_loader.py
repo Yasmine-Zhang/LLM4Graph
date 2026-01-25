@@ -8,7 +8,7 @@ class BaseDataLoader(ABC):
     """
     def __init__(self, config: Dict):
         self.config = config
-        self.root = config.get('root', 'dataset')
+        self.root = config.get('root', 'data')
         self.data = None # Should be populated by implementation
         self.split_idx = None # Should be populated by implementation
 

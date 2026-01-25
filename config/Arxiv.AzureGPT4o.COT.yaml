@@ -11,7 +11,7 @@ ensemble:
 
 dataset:
   name: "ogbn-arxiv"
-  root: "./dataset"
+  root: "./data"
   
   categories: 
     - cs.NA

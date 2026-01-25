@@ -19,7 +19,7 @@ gnn:
 
 dataset:
   name: "ogbn-arxiv"
-  root: "./dataset"
+  root: "./data"
   
   # Even if we don't use LLM, main.py might try to init the client.
   # We should keep a dummy llm config or handle it in main.py if config missing.
