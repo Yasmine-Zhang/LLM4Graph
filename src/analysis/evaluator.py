@@ -28,8 +28,8 @@ def evaluate_results(data, split_idx, loader, output_dir, logger, config=None):
         logger.info(f"[Ensemble] Active. Threshold={threshold}. Logic: IF LLM_Conf > Thresh THEN LLM ELSE GNN")
     
     # paths
-    llm_path = os.path.join(output_dir, "llm_predict.json")
-    gnn_path = os.path.join(output_dir, "gnn_predict.json")
+    llm_path = os.path.join(output_dir, "llm_predictions.json")
+    gnn_path = os.path.join(output_dir, "gnn_predictions.json")
     
     # 1. Load LLM Predictions
     llm_preds = {}
@@ -198,14 +198,19 @@ def evaluate_results(data, split_idx, loader, output_dir, logger, config=None):
     logger.info(f"[OVERALL] Accuracy: {metrics['overall']['accuracy']:.4f}")
 
     # Save Results
-    final_output = {
-        "metrics": metrics,
-        "results": results_list
+    # Split into lightweight results.json (metrics) and heavyweight predictions.json (details)
+    results_output = {
+        "metrics": metrics
     }
     
     results_path = os.path.join(output_dir, "results.json")
     with open(results_path, 'w') as f:
-        json.dump(final_output, f, indent=2)
+        json.dump(results_output, f, indent=2)
+
+    predictions_path = os.path.join(output_dir, "predictions.json")
+    with open(predictions_path, 'w') as f:
+        json.dump(results_list, f, indent=2)
         
-    logger.info(f"Results analysis saved to {results_path}")
+    logger.info(f"Metrics saved to {results_path}")
+    logger.info(f"Predictions saved to {predictions_path}")
     return metrics

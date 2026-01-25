@@ -66,7 +66,7 @@ def main():
     # Handle LLM Cache Copying
     if args.llm_cache:
         if os.path.exists(args.llm_cache):
-            target_cache_path = os.path.join(output_dir, "llm_predict.json")
+            target_cache_path = os.path.join(output_dir, "llm_predictions.json")
             if not os.path.exists(target_cache_path): # Don't overwrite if already exists in output? Or should we?
                 # User specifically asked to use this cache, so we should probably overwrite or ensure it's there.
                 # But let's trigger the copy.
@@ -111,7 +111,7 @@ def main():
              llm_conf['system_prompt'] = config['dataset']['system_prompt']
 
         # Optimization: Check cache first before initializing heavy client
-        target_cache_path = os.path.join(output_dir, "llm_predict.json")
+        target_cache_path = os.path.join(output_dir, "llm_predictions.json")
         cache_hit = False
         loaded_preds = {}
         
@@ -192,7 +192,7 @@ def main():
         trainer = train_gnn_model(config, data, train_mask, loader.dataset.num_classes, output_dir, logger)
         
         # 5. GNN 
-        # Decoupled inference step, saves to gnn_predict.json
+        # Decoupled inference step, saves to gnn_predictions.json
         trainer.run_gnn_inference(data, output_dir, logger)
         
         # Restore original labels for correct evaluation

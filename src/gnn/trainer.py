@@ -112,7 +112,7 @@ class GNNTrainer:
                 # "gnn_confidence": float(probs[idx].max()) 
             }
             
-        save_path = os.path.join(output_dir, "gnn_predict.json")
+        save_path = os.path.join(output_dir, "gnn_predictions.json")
         with open(save_path, 'w') as f:
             json.dump(predictions, f, indent=2)
             

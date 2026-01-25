@@ -32,7 +32,7 @@ class BaseClient(ABC):
         
         # Priority 1: User specified cache
         # Priority 2: Default location in output_dir
-        llm_cache_path = llm_cache if llm_cache else os.path.join(output_dir, "llm_predict.json")
+        llm_cache_path = llm_cache if llm_cache else os.path.join(output_dir, "llm_predictions.json")
         
         predictions = {}
         
@@ -67,7 +67,7 @@ class BaseClient(ABC):
         else:
             logger.info(f"Remaining nodes to predict: {len(remaining_indices)}")
             
-            save_path = os.path.join(output_dir, "llm_predict.json")
+            save_path = os.path.join(output_dir, "llm_predictions.json")
             processed_count = 0
             
             # Process remaining nodes
