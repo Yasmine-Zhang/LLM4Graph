@@ -3,19 +3,9 @@ experiment:
   seed: 42
   device: "cuda:0"
 
-data_filter:
-  method: "bounded_proportional"
-  top_pct: 0.2
-  min_n: 50
-  max_n: 1000
-  threshold: 0.999 # High threshold for Qwen because it's prone to hallucination
-
-ensemble:
-  threshold: 0.99
-
 dataset:
   name: "ogbn-arxiv"
-  root: "./data"
+  root: "data"
   
   categories: 
     - cs.NA
@@ -131,10 +121,3 @@ llm:
   temperature: 0.0
   top_p: 1.0
   save_interval: 10
-  
-gnn:
-  hidden_channels: 256
-  num_layers: 3
-  dropout: 0.5
-  lr: 0.01
-  epochs: 200

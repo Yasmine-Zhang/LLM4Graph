@@ -3,12 +3,6 @@ experiment:
   seed: 42
   device: "cuda:0"
 
-pipeline:
-  confidence_threshold: 0.8  
-
-ensemble:
-  threshold: 0.99
-
 dataset:
   name: "ogbn-arxiv"
   root: "./data"
@@ -136,12 +130,3 @@ llm:
   max_attempts: 20
   sleep_time: 5
   save_interval: 10
-
-gnn:
-  model_name: "GCN" 
-  hidden_channels: 256
-  num_layers: 3
-  dropout: 0.5
-  lr: 0.01
-  epochs: 10
-  device: "cuda:0"

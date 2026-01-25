@@ -109,62 +109,96 @@ def main():
              llm_conf['system_prompt'] = loader.get_system_prompt()
         else:
              llm_conf['system_prompt'] = config['dataset']['system_prompt']
-             
-        client = get_client(llm_conf)
+
+        # Optimization: Check cache first before initializing heavy client
+        target_cache_path = os.path.join(output_dir, "llm_predict.json")
+        cache_hit = False
+        loaded_preds = {}
         
-        predictions = client.run_inference(
-            loader=loader, 
-            target_indices=target_indices, 
-            output_dir=output_dir, 
-            logger=logger,
-            prompt_template=config['dataset']['prompt_template'],
-            candidates=config['dataset']['categories'],
-            llm_cache=None # modified to use the copied file in output_dir
-        )
+        if os.path.exists(target_cache_path):
+             try:
+                 with open(target_cache_path, 'r') as f:
+                     raw_preds = json.load(f)
+                 # Normalize keys to int and format values
+                 for k, v in raw_preds.items():
+                     node_idx = int(k)
+                     cat = v.get('llm_predict', "")
+                     conf = v.get('llm_confident', -999)
+                     raw = v.get('llm_raw_response', "")
+                     loaded_preds[node_idx] = {
+                        "llm_predict": cat,
+                        "llm_confident": conf,
+                        "llm_raw_response": raw
+                     }
+                 
+                 # Check coverage
+                 remaining = [idx for idx in target_indices if idx not in loaded_preds]
+                 if not remaining:
+                     logger.info(f"Full cache hit! Loaded {len(loaded_preds)} predictions. Skipping LLM Client initialization.")
+                     predictions = loaded_preds
+                     cache_hit = True
+                 else:
+                     logger.info(f"Partial cache hit. Missing {len(remaining)} predictions. Initializing Client...")
+             except Exception as e:
+                 logger.warning(f"Failed to read cache for pre-check: {e}")
+
+        if not cache_hit:
+            client = get_client(llm_conf)
+            
+            predictions = client.run_inference(
+                loader=loader, 
+                target_indices=target_indices, 
+                output_dir=output_dir, 
+                logger=logger,
+                prompt_template=config['dataset']['prompt_template'],
+                candidates=config['dataset']['categories'],
+                llm_cache=None 
+            )
     else:
         logger.info("[INFO] 'llm' config missing. Skipping LLM inference.")
         predictions = {}
 
-    # 3. Filtering and Augmentation
-    logger.info("Filtering and Augmenting Training Set...")
-    train_mask = torch.zeros(data.num_nodes, dtype=torch.bool)
-    original_y = data.y.clone()
-    
-    # Extract selector config directly
-    selector_config = config.get('data_filter', {})
-    if not selector_config:
-        logger.warning("No 'data_filter' config found! Using defaults or failing.")
+    if 'gnn' in config:
+        # 3. Filtering and Augmentation
+        logger.info("Filtering and Augmenting Training Set...")
+        train_mask = torch.zeros(data.num_nodes, dtype=torch.bool)
+        original_y = data.y.clone()
+        
+        # Extract selector config directly
+        selector_config = config.get('data_filter', {})
+        if not selector_config:
+            logger.warning("No 'data_filter' config found! Using defaults or failing.")
 
-    # Call Selector (Pass split_idx and gt_y for supervised strategy)
-    pseudo_indices, pseudo_labels = select_anchors(
-        predictions, label_map_inv, selector_config, logger, 
-        split_idx=split_idx, gt_y=data.y
-    )
-    
-    if not pseudo_indices:
-        logger.warning("No pseudo-labels generated! GNN cannot train.")
-        return
+        # Call Selector (Pass split_idx and gt_y for supervised strategy)
+        pseudo_indices, pseudo_labels = select_anchors(
+            predictions, label_map_inv, selector_config, logger, 
+            split_idx=split_idx, gt_y=data.y
+        )
+        
+        if not pseudo_indices:
+            logger.warning("No pseudo-labels generated! GNN cannot train.")
+            return
 
-    new_train_idx = torch.tensor(pseudo_indices, dtype=torch.long)
-    train_mask[new_train_idx] = True
-    
-    # Inject pseudo-labels (Override data.y for GNN training)
-    # Even if supervised, we do this to ensure data.y matches what GNN expects at train_mask
-    if pseudo_indices:
-        pseudo_tensor = torch.tensor(pseudo_labels, dtype=torch.long).unsqueeze(1)
-        data.y[pseudo_indices] = pseudo_tensor
-    
-    # 4. GNN Training
-    trainer = train_gnn_model(config, data, train_mask, loader.dataset.num_classes, output_dir, logger)
-    
-    # 5. GNN 
-    # Decoupled inference step, saves to gnn_predict.json
-    trainer.run_gnn_inference(data, output_dir, logger)
-
-    # 6. Evaluation & Analysis
-    # Decoupled analysis step, reads json files and produces results.json
-    # Restore original labels for correct evaluation
-    data.y = original_y
+        new_train_idx = torch.tensor(pseudo_indices, dtype=torch.long)
+        train_mask[new_train_idx] = True
+        
+        # Inject pseudo-labels (Override data.y for GNN training)
+        # Even if supervised, we do this to ensure data.y matches what GNN expects at train_mask
+        if pseudo_indices:
+            pseudo_tensor = torch.tensor(pseudo_labels, dtype=torch.long).unsqueeze(1)
+            data.y[pseudo_indices] = pseudo_tensor
+        
+        # 4. GNN Training
+        trainer = train_gnn_model(config, data, train_mask, loader.dataset.num_classes, output_dir, logger)
+        
+        # 5. GNN 
+        # Decoupled inference step, saves to gnn_predict.json
+        trainer.run_gnn_inference(data, output_dir, logger)
+        
+        # Restore original labels for correct evaluation
+        data.y = original_y
+    else:
+        logger.info("[INFO] 'gnn' config missing. Skipping GNN pipeline (Filter/Train/Infer).")
     evaluate_results(data, split_idx, loader, output_dir, logger, config)
 
     logger.info("Pipeline Completed.")
