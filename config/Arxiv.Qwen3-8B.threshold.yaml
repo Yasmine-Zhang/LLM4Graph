@@ -1,14 +1,14 @@
 experiment:
-  name: "Arxiv.AzureGPT4o.threshold"
+  name: "Arxiv.Qwen3-8B.threshold"
   seed: 42
   device: "cuda:0"
 
 data_filter:
   method: "confidence_threshold"
-  threshold: 0.9  # Only high confidence anchors
+  threshold: 0.99  # Only high confidence anchors
 
 ensemble:
-  threshold: 0.99
+  threshold: 0.9
 
 dataset:
   name: "ogbn-arxiv"
@@ -120,22 +120,13 @@ dataset:
     Answer:
 
 llm:
-  name: "AzureGPT-4o"
-  type: "AzureGPT" 
-  return_logprobs: true
-  
-  api_version: "2025-01-01-preview"
-  azure_endpoint: "https://trapi.research.microsoft.com/msra/shared"
-  
-  model: "gpt-4o_2024-08-06"
-  azure_ad_scope: "api://trapi/.default"
-  
-  temperature: 0.0      
+  type: "TransformersClient"
+  name: "Qwen/Qwen3-8B" 
+  device_id: 0
+  think: false
+  max_new_tokens: 100
+  temperature: 0.0
   top_p: 1.0
-  max_completion_tokens: 20
-  repetition_penalty: 1.0
-  max_attempts: 20
-  sleep_time: 5
   save_interval: 10
 
 gnn:
