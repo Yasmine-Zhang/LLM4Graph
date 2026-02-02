@@ -174,6 +174,9 @@ class BaseClient(ABC):
                 response_lower = extracted_cat.lower()
                 candidates_lower = [c.lower() for c in candidates]
                 
+                if response_lower == 'uncertain':
+                     return "UNCERTAIN", -999.0, response
+
                 if response_lower not in candidates_lower:
                     err_msg = f"Output '{extracted_cat}' (from '{clean_response}') not in candidates."
                     # On final attempt, print error to console
