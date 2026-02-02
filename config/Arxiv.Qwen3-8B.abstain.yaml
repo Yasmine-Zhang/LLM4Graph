@@ -3,13 +3,6 @@ experiment:
   seed: 42
   device: "cuda:0"
 
-data_filter:
-  method: "confidence_threshold"
-  threshold: 0.9 # We rely on UNCERTAIN to filter out bad cases, and high confidence for anchors
-
-ensemble:
-  threshold: 0.8
-
 dataset:
   name: "ogbn-arxiv"
   root: "data"
@@ -76,16 +69,9 @@ dataset:
 llm:
   type: "TransformersClient"
   name: "Qwen/Qwen3-8B" 
-  device_id: 1
+  device_id: 0
   think: false
-  max_new_tokens: 32
+  max_new_tokens: 100
   temperature: 0.0
   top_p: 1.0
-  save_interval: 100 # Increase save interval for full run
-
-gnn:
-  hidden_channels: 256
-  num_layers: 3
-  dropout: 0.5
-  lr: 0.01
-  epochs: 200 # Increase epochs for full training
+  save_interval: 10
