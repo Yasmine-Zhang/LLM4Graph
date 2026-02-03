@@ -1,14 +1,11 @@
 experiment:
-  name: "Arxiv.AzureGPT4o.bounded"
+  name: "Arxiv.AzureGPT4o.threshold_abstain"
   seed: 42
   device: "cuda:0"
 
 data_filter:
-  method: "bounded_proportional"
-  threshold: 0.99
-  prop: 0.2        # Select top 20%
-  min_samples: 50  # At least 50
-  max_samples: 1000 # At most 1000
+  method: "confidence_threshold"
+  threshold: 0.9  # Only high confidence anchors
 
 ensemble:
   threshold: 0.99

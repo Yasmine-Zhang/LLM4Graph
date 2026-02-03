@@ -1,14 +1,16 @@
 experiment:
-  name: "Arxiv.Qwen3-8B.threshold"
+  name: "Arxiv.AzureGPT4o.abstain"
   seed: 42
   device: "cuda:0"
 
+# "Abstain" Strategy often implies:
+# 1. Lower Training Threshold (to let GNN learn from more data, even slightly noisy)
+# 2. High Inference Threshold (Ensemble)
 data_filter:
-  method: "confidence_threshold"
-  threshold: 0.8
+  method: "all"
 
 ensemble:
-  threshold: 0.99
+  threshold: 0.99 # Use LLM only when very sure, else GNN
 
 dataset:
   name: "ogbn-arxiv"
@@ -63,10 +65,11 @@ dataset:
     INSTRUCTIONS:
     1. Output ONLY the category code (e.g. cs.NA).
     2. Do NOT provide any explanation or reasoning.
-    3. Do NOT include the category description name.
+    3. If the paper is ambiguous, overlaps multiple categories significantly, or you are not strictly confident in the Primary Category, output **UNCERTAIN**.
 
   prompt_template: |
     Please classify the following paper into the single most appropriate PRIMARY category from the list:
+    If you are not strictly confident, choose UNCERTAIN.
     
     cs.NA (Numerical Analysis)
     cs.MM (Multimedia)
@@ -115,18 +118,27 @@ dataset:
     Which category is the PRIMARY classification?
 
     Output Format:
-    Category: <cs.XX> (Output ONLY the code, e.g. cs.AI. Do NOT include class name)
+    Category: <cs.XX or UNCERTAIN> (Output ONLY the code, e.g. cs.AI or UNCERTAIN. Do NOT include class name)
 
     Answer:
 
 llm:
-  type: "TransformersClient"
-  name: "Qwen/Qwen3-8B" 
-  device_id: 0
-  think: false
-  max_new_tokens: 100
-  temperature: 0.0
+  name: "AzureGPT-4o"
+  type: "AzureGPT" 
+  return_logprobs: true
+  
+  api_version: "2025-01-01-preview"
+  azure_endpoint: "https://trapi.research.microsoft.com/msra/shared"
+  
+  model: "gpt-4o_2024-08-06"
+  azure_ad_scope: "api://trapi/.default"
+  
+  temperature: 0.0      
   top_p: 1.0
+  max_completion_tokens: 20
+  repetition_penalty: 1.0
+  max_attempts: 20
+  sleep_time: 5
   save_interval: 10
 
 gnn:
