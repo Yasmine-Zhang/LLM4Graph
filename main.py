@@ -23,31 +23,67 @@ def parse_args():
     parser.add_argument('--num_shards', type=int, default=1, help="Total number of shards/GPUs")
     return parser.parse_args()
 
-def train_gnn_model(config, data, train_mask, num_classes, output_dir, logger):
+def train_gnn_model(config, data, train_mask, num_classes, output_dir, logger, split_idx=None, original_y=None):
     """
-    Initialize and train the GNN model.
+    Initialize and train the GNN model with model selection (Early Stopping).
     Returns the trained trainer instance (model is inside).
     """
+    # Force float weight decay back to default if not experimenting
+    # (Just in case config still had it)
+    
     logger.info("Starting GNN Training...")
     num_features = data.x.shape[1]
     
     gnn_config = config['gnn']
     trainer = GNNTrainer(gnn_config, num_features, num_classes)
     
+    # Validation Setup
+    valid_mask = None
+    if split_idx is not None and 'valid' in split_idx:
+        valid_mask = torch.zeros(data.num_nodes, dtype=torch.bool)
+        valid_mask[split_idx['valid']] = True
+        logger.info("Validation set enabled for model selection.")
+
+    model_path = os.path.join(output_dir, "gnn_model.pt")
+    best_val_acc = 0.0
+    best_epoch = -1
+    
     # Training Loop
     pbar = tqdm(range(trainer.epochs), desc="GNN Training")
     for epoch in pbar:
         loss = trainer.train(data, train_mask)
-        pbar.set_postfix({'loss': f"{loss:.4f}"})
         
-        # Log to file every 10 epochs
-        if (epoch + 1) % 10 == 0:
-            logger.info(f"Epoch {epoch+1:03d}/{trainer.epochs} | Loss: {loss:.4f}")
+        current_val_acc = 0.0
+        if valid_mask is not None:
+            # CRITICAL FIX: Pass original_y as the ground truth for validation
+            # This ensures we validate against HUMAN LABELS, not LLM pseudo-labels
+            current_val_acc = trainer.evaluate(data, valid_mask, true_y=original_y)
+            
+            # Save Best Model
+            if current_val_acc > best_val_acc:
+                best_val_acc = current_val_acc
+                best_epoch = epoch
+                trainer.save(model_path)
+            
+            pbar.set_postfix({'loss': f"{loss:.4f}", 'val_acc': f"{current_val_acc:.4f}"})
+        else:
+            pbar.set_postfix({'loss': f"{loss:.4f}"})
+            # If no validation, just save the last one
+            trainer.save(model_path)
         
-    # Save Model
-    model_path = os.path.join(output_dir, "gnn_model.pt")
-    trainer.save(model_path)
-    logger.info(f"GNN Model saved to {model_path}")
+        # Log to file every 50 epochs
+        if (epoch + 1) % 50 == 0:
+            log_msg = f"Epoch {epoch+1:03d}/{trainer.epochs} | Loss: {loss:.4f}"
+            if valid_mask is not None:
+                log_msg += f" | Val Acc: {current_val_acc:.4f} (Best: {best_val_acc:.4f} at Ep {best_epoch})"
+            logger.info(log_msg)
+        
+    if valid_mask is not None:
+        logger.info(f"Training Finished. Best Validation Epoch: {best_epoch} (Acc: {best_val_acc:.4f})")
+        logger.info(f"Loading best model from {model_path}")
+        trainer.load(model_path)
+    else:
+        logger.info(f"Training Finished. GNN Model saved to {model_path}")
     
     return trainer
 
@@ -189,7 +225,7 @@ def main():
             data.y[pseudo_indices] = pseudo_tensor
         
         # 4. GNN Training
-        trainer = train_gnn_model(config, data, train_mask, loader.dataset.num_classes, output_dir, logger)
+        trainer = train_gnn_model(config, data, train_mask, loader.dataset.num_classes, output_dir, logger, split_idx=split_idx, original_y=original_y)
         
         # 5. GNN 
         # Decoupled inference step, saves to gnn_predictions.json

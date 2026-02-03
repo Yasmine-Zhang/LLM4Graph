@@ -16,6 +16,7 @@ class GNNTrainer:
         num_layers = config.get("num_layers", 3)
         dropout = config.get("dropout", 0.5)
         self.lr = config.get("lr", 0.01)
+        self.weight_decay = config.get("weight_decay", 0.0) # Default 0.0
         self.epochs = config.get("epochs", 100)
         
         # Initialize Model
@@ -28,7 +29,7 @@ class GNNTrainer:
         ).to(self.device)
         
         # Optimizer
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr)
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=self.weight_decay)
 
     def train(self, data, train_mask) -> float:
         """
@@ -60,6 +61,31 @@ class GNNTrainer:
         self.optimizer.step()
         
         return loss.item()
+
+    @torch.no_grad()
+    def evaluate(self, data, mask, true_y=None) -> float:
+        """
+        Evaluates the model on the given mask and returns accuracy.
+        Args:
+            data: PyG data object
+            mask: Boolean mask for evaluation
+            true_y: Optional tensor of True Ground Truth labels. 
+                   If None, uses data.y (which might contain pseudo-labels).
+        """
+        self.model.eval()
+        if data.x.device != self.device:
+            data = data.to(self.device)
+            
+        out = self.model(data.x, data.edge_index)
+        pred = out.argmax(dim=1)
+        
+        # Use provided true labels if available, otherwise data.y
+        target = true_y if true_y is not None else data.y
+        target = target.to(self.device).squeeze()
+        
+        correct = (pred[mask] == target[mask]).sum().item()
+        acc = correct / mask.sum().item()
+        return acc
 
     @torch.no_grad()
     def predict(self, data) -> torch.Tensor:

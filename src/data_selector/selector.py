@@ -23,18 +23,49 @@ def select_anchors(predictions, label_map_inv, config, logger, **kwargs):
 
     # 1. Preprocessing: Convert Dict to DataFrame for vectorized filtering and sorting
     #    This is more efficient than the previous loop for complex strategies
+    import re
     data = []
     valid_predictions = 0
     
     for nid_str, res in predictions.items():
         nid = int(nid_str)
+        # Use RAW RESPONSE for parsing CoT/Confidence strings, fall back to predict string if raw missing
+        raw_text = res.get('llm_raw_response', '') or res.get('llm_predict', '')
         conf = res.get('llm_confident', -999)
+        
+        # --- Advanced Parsing for CoT/Explicit Confidence ---
+        # 1. Try Extract Explicit Confidence (e.g., "Confidence: 0.85" or "Confidence Score: 85")
+        c_match = re.search(r'Confidence(?:\s*Score)?\s*[:=]\s*(\d+(?:\.\d+)?)', raw_text, re.IGNORECASE)
+        if c_match:
+            try:
+                val = float(c_match.group(1))
+                # Normalize 0-100 to 0-1
+                if val > 1.0: val = val / 100.0
+                if val <= 1.0 and val >= 0.0:
+                    conf = val # Override logprob with explicit confidence
+            except: pass
+
+        # 2. Try Extract Category (e.g., "Category: cs.AI" or just "cs.AI" at the end)
+        # First check for explicit "Category:" tag
+        pred_str = ""
+        cat_match = re.search(r'Category\s*[:=]\s*(cs\.[a-z]{2})', raw_text, re.IGNORECASE)
+        if cat_match:
+            pred_str = cat_match.group(1).upper()
+        else:
+            # Fallback: Look for the *last* valid category code in the text
+            # This handles "The answer is cs.AI" or "cs.AI"
+            all_cats = re.findall(r'cs\.[a-z]{2}', raw_text, re.IGNORECASE)
+            if all_cats:
+                pred_str = all_cats[-1].upper()
+            else:
+                # Ultimate fallback to original cleaning
+                pred_str = raw_text.upper().replace('ARXIV ', '').replace(' ', '.')
+
+        # --- End Parsing ---
+
         # Handle potential LogProb or Probability
         prob = conf if conf > 0 else math.exp(conf)
         if prob > 1.0: prob = 1.0
-        
-        # Normalize predicted string
-        pred_str = res.get('llm_predict', '').upper().replace('ARXIV ', '').replace(' ', '.')
         
         if pred_str in label_map_inv:
             cat_idx = label_map_inv[pred_str]
