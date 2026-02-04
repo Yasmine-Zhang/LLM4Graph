@@ -86,12 +86,14 @@ def evaluate_results(data, split_idx, loader, output_dir, logger, config=None):
 
     # Tracking metrics
     correct_count = 0
+    llm_correct_count = 0
+    gnn_correct_count = 0
     total_count = 0
     
     split_stats = {
-        k: {'correct': 0, 'total': 0} for k in split_idx.keys()
+        k: {'correct': 0, 'llm_correct': 0, 'gnn_correct': 0, 'total': 0} for k in split_idx.keys()
     }
-    split_stats['unknown'] = {'correct': 0, 'total': 0}
+    split_stats['unknown'] = {'correct': 0, 'llm_correct': 0, 'gnn_correct': 0, 'total': 0}
 
     # Iterate all nodes
     for idx_val in tqdm(range(data.num_nodes), desc="Evaluating"):
@@ -115,13 +117,26 @@ def evaluate_results(data, split_idx, loader, output_dir, logger, config=None):
         gnn_res = gnn_preds.get(idx, {})
         gnn_pred_idx = gnn_res.get('gnn_predict')
         
+        has_llm = (llm_cat_str is not None)
+        has_gnn = (gnn_res and gnn_pred_idx is not None)
+
+        # Standalone Metric Check
+        if has_llm:
+            clean_llm = str(llm_cat_str).upper()
+            if clean_llm in inv_map:
+                if inv_map[clean_llm] == ground_truth_idx:
+                    llm_correct_count += 1
+                    split_stats[subset]['llm_correct'] += 1
+        
+        if has_gnn:
+            if int(gnn_pred_idx) == ground_truth_idx:
+                gnn_correct_count += 1
+                split_stats[subset]['gnn_correct'] += 1
+
         # Determine Final Prediction strategy
         final_pred_idx = -1
         final_pred_cat = "N/A"
         is_correct = False
-        
-        has_llm = (llm_cat_str is not None)
-        has_gnn = (gnn_res and gnn_pred_idx is not None)
         
         use_source = 'none'
         
@@ -182,6 +197,8 @@ def evaluate_results(data, split_idx, loader, output_dir, logger, config=None):
         "overall": {
             "accuracy": float(correct_count / total_count * 100) if total_count > 0 else 0.0,
             "correct": correct_count,
+            "llm_accuracy": float(llm_correct_count / total_count * 100) if total_count > 0 else 0.0,
+            "gnn_accuracy": float(gnn_correct_count / total_count * 100) if total_count > 0 else 0.0,
             "total": total_count
         }
     }
@@ -191,17 +208,17 @@ def evaluate_results(data, split_idx, loader, output_dir, logger, config=None):
             metrics[split_name] = {
                 "accuracy": float(stats['correct'] / stats['total'] * 100),
                 "correct": stats['correct'],
+                "llm_accuracy": float(stats['llm_correct'] / stats['total'] * 100),
+                "gnn_accuracy": float(stats['gnn_correct'] / stats['total'] * 100),
                 "total": stats['total']
             }
-            logger.info(f"[{split_name.upper()}] Accuracy: {metrics[split_name]['accuracy']:.4f}")
+            logger.info(f"[{split_name.upper()}] Acc: {metrics[split_name]['accuracy']:.4f} | LLM: {metrics[split_name]['llm_accuracy']:.4f} | GNN: {metrics[split_name]['gnn_accuracy']:.4f}")
 
-    logger.info(f"[OVERALL] Accuracy: {metrics['overall']['accuracy']:.4f}")
+    logger.info(f"[OVERALL] Acc: {metrics['overall']['accuracy']:.4f} | LLM: {metrics['overall']['llm_accuracy']:.4f} | GNN: {metrics['overall']['gnn_accuracy']:.4f}")
 
     # Save Results
     # Split into lightweight results.json (metrics) and heavyweight predictions.json (details)
-    results_output = {
-        "metrics": metrics
-    }
+    results_output = metrics
     
     results_path = os.path.join(output_dir, "results.json")
     with open(results_path, 'w') as f:
