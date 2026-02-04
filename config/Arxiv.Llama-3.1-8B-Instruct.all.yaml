@@ -1,7 +1,13 @@
 experiment:
-  name: "Arxiv.Ministral-3-8B-Instruct-2512"
+  name: "Arxiv.Llama-3.1-8B-Instruct.all"
   seed: 42
   device: "cuda:0"
+
+data_filter:
+  method: "all" # Policy: Trust ALL LLM predictions
+
+ensemble:
+  threshold: 0.99
 
 dataset:
   name: "ogbn-arxiv"
@@ -114,10 +120,19 @@ dataset:
 
 llm:
   type: "TransformersClient"
-  name: "mistralai/Ministral-3-8B-Instruct-2512"
+  name: "meta-llama/Llama-3.1-8B-Instruct" 
   device_id: 0
   think: false
   max_new_tokens: 100
   temperature: 0.0
   top_p: 1.0
   save_interval: 10
+
+
+gnn:
+  # Standard GCN params
+  hidden_channels: 256
+  num_layers: 3
+  dropout: 0.5
+  lr: 0.01
+  epochs: 500
