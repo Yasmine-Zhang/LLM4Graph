@@ -70,7 +70,7 @@ dataset:
   prompt_template: |
     Please classify the following paper into the single most appropriate PRIMARY category from following list:
     
-        cs.NA (Numerical Analysis)
+    cs.NA (Numerical Analysis)
     cs.MM (Multimedia)
     cs.LO (Logic in Computer Science)
     cs.CY (Computers and Society)
