@@ -58,15 +58,16 @@ dataset:
   
   system_prompt: |
     You are an expert researcher and librarian specialized in classifying arXiv Computer Science papers.
-    The arXiv dataset is single-label. Your task is to identify the **PRIMARY** category for the paper.
-    
+    The arXiv dataset is single-label. Your task is to identify the **PRIMARY** category.
+
     INSTRUCTIONS:
     1. Output ONLY the category code (e.g. cs.NA).
     2. Do NOT provide any explanation or reasoning.
     3. Do NOT include the category description name.
-
+    4. Do NOT think. Do NOT use <think> tags. Output the category directly.
+    
   prompt_template: |
-    Please classify the following paper into the single most appropriate PRIMARY category from the list:
+    Please classify the following paper into the single most appropriate PRIMARY category from following list:
     
     cs.NA (Numerical Analysis)
     cs.MM (Multimedia)
@@ -109,15 +110,11 @@ dataset:
     cs.DL (Digital Libraries)
     cs.DM (Discrete Mathematics)
 
+
     Paper Title: "{title}"
     Abstract: "{abstract}"
     
-    Which category is the PRIMARY classification?
-
-    Output Format:
-    Category: <cs.XX> (Output ONLY the code, e.g. cs.AI. Do NOT include class name)
-
-    Answer:
+    Category (cs.XX):
 
 llm:
   type: "TransformersClient"

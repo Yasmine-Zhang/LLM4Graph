@@ -69,8 +69,7 @@ dataset:
     3. If the paper is extremely ambiguous and you cannot determine the primary category with reasonable confidence, output **UNCERTAIN**.
 
   prompt_template: |
-    Please classify the following paper into the single most appropriate PRIMARY category from the list:
-    If you cannot determine the primary category with reasonable confidence, choose UNCERTAIN.
+    Please classify the following paper into the single most appropriate PRIMARY category from following list:
     
     cs.NA (Numerical Analysis)
     cs.MM (Multimedia)
@@ -113,6 +112,8 @@ dataset:
     cs.DL (Digital Libraries)
     cs.DM (Discrete Mathematics)
 
+    If you cannot determine the primary category with reasonable confidence, choose UNCERTAIN.
+    
     Paper Title: "{title}"
     Abstract: "{abstract}"
     

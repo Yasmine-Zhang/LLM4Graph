@@ -59,7 +59,7 @@ dataset:
     3. Do NOT include the category description name.
 
   prompt_template: |
-    Please classify the following paper into the single most appropriate PRIMARY category from the list:
+    Please classify the following paper into the single most appropriate PRIMARY category from following list:
     
     cs.NA (Numerical Analysis)
     cs.MM (Multimedia)

@@ -59,13 +59,16 @@ dataset:
   system_prompt: |
     You are an expert researcher and librarian specialized in classifying arXiv Computer Science papers.
     The arXiv dataset is single-label. Your task is to identify the **PRIMARY** category.
-    
+
     INSTRUCTIONS:
     1. Output ONLY the category code (e.g. cs.NA).
-    2. If the paper is ambiguous, overlaps multiple categories significantly, or you are not strictly confident in the Primary Category, output **UNCERTAIN**.
-    
+    2. Do NOT provide any explanation or reasoning.
+    3. Do NOT include the category description name.
+    4. Do NOT think. Do NOT use <think> tags. Output the category directly.
+    5. If the paper is ambiguous, overlaps multiple categories significantly, or you are not strictly confident in the Primary Category, output **UNCERTAIN**.
+
   prompt_template: |
-    Please classify the following paper into the single most appropriate PRIMARY category from the list. 
+    Please classify the following paper into the single most appropriate PRIMARY category. 
     If you are not strictly confident, choose UNCERTAIN.
 
     Paper Title: "{title}"
