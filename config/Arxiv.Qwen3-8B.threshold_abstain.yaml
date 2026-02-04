@@ -15,6 +15,7 @@ dataset:
   root: "data"
   
   categories: 
+    - UNCERTAIN
     - cs.NA
     - cs.MM
     - cs.LO
