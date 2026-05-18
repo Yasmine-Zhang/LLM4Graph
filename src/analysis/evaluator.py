@@ -107,11 +107,20 @@ def evaluate_results(data, split_idx, loader, output_dir, logger, config=None):
         llm_cat_str = llm_res.get('llm_predict', llm_res.get('category'))
         llm_raw_conf = llm_res.get('llm_confident', llm_res.get('confidence', -999))
         
-        # Normalize confidence (Same logic as selector.py)
-        llm_prob = llm_raw_conf
-        if llm_prob <= 0: # assume logprob
-             llm_prob = math.exp(llm_raw_conf)
-        if llm_prob > 1.0: llm_prob = 1.0
+        # Normalize confidence (Handle dict for logprobs)
+        if isinstance(llm_raw_conf, dict):
+            # Extract probability of the predicted category if available, else sum, or just use max
+            # For evaluator metrics, let's just use the max probability token or the prediction's probability
+            # The top token is just the first item usually, but we want a scalar for legacy metrics.
+            # Best approach: get the logprob of the predicted token if it exists in the dict, else get max logprob.
+            # Actually, to make it simple for now, just grab the max logprob in the dict.
+            max_logp = max(llm_raw_conf.values()) if llm_raw_conf else -999.0
+            llm_prob = math.exp(max_logp) if max_logp <= 0 else max_logp
+        else:
+            llm_prob = llm_raw_conf
+            if llm_prob <= 0: # assume logprob
+                 llm_prob = math.exp(llm_raw_conf)
+            if llm_prob > 1.0: llm_prob = 1.0
         
         # Resolve GNN info
         gnn_res = gnn_preds.get(idx, {})

@@ -126,6 +126,7 @@ def main():
     # We predict logic for ALL nodes to find high-confidence anchors anywhere.
     split_idx = loader.split_idx
     all_indices = list(range(data.num_nodes))
+    all_indices = all_indices[:100]
     
     # Sharding for multi-gpu/parallel inference
     if args.num_shards > 1:

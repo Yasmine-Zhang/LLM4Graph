@@ -55,8 +55,9 @@ class AzureGPTClient(BaseClient):
         )
         
         self.return_logprobs = config.get("return_logprobs", True)
+        self.return_logprobs_count = config.get("return_logprobs_count", 20)
 
-    def predict_once(self, messages: List[Dict[str, str]]) -> Tuple[str, float]:
+    def predict_once(self, messages: List[Dict[str, str]]) -> Tuple[str, List[Dict]]:
         """
         Executes a single chat completion and returns content + logprob.
         """
@@ -76,7 +77,7 @@ class AzureGPTClient(BaseClient):
         # We try to use it if configured
         if self.return_logprobs:
             completion_args["logprobs"] = True
-            completion_args["top_logprobs"] = 5
+            completion_args["top_logprobs"] = self.return_logprobs_count
 
         try:
             response = self.client.chat.completions.create(**completion_args)
@@ -84,18 +85,23 @@ class AzureGPTClient(BaseClient):
             choice = response.choices[0]
             content = choice.message.content.strip() if choice.message.content else ""
             
-            log_prob = -999.0
+            logprobs_seq = []
             
-            # Extract logprob if available
-            if hasattr(choice, 'logprobs') and choice.logprobs and choice.logprobs.content:
-                # Calculate Average LogProb (Joint Probability Normalized by Length)
-                # This is a better metric for CoT/Reasoning than just the first token
+            # Extract sequence of top logprobs
+            if hasattr(choice, 'logprobs') and choice.logprobs and getattr(choice.logprobs, 'content', None):
                 tokens = choice.logprobs.content
-                if tokens:
-                    total_logprob = sum(t.logprob for t in tokens)
-                    log_prob = total_logprob / len(tokens)
+                for t in tokens:
+                    step_dict = {}
+                    if hasattr(t, 'top_logprobs') and t.top_logprobs:
+                        for tl in t.top_logprobs:
+                            step_dict[tl.token] = tl.logprob
+                    logprobs_seq.append({
+                        'token': t.token,
+                        'logprob': t.logprob,
+                        'top_logprobs': step_dict
+                    })
             
-            return content, log_prob
+            return content, logprobs_seq
 
         except Exception as e:
             # Fallback logic for "Unsupported parameter" (e.g. logprobs not supported)
@@ -114,3 +120,4 @@ class AzureGPTClient(BaseClient):
                 return self.predict_once(messages)
 
             raise e
+

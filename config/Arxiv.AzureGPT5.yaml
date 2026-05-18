@@ -113,21 +113,21 @@ dataset:
     Answer:
 
 llm:
-  name: "GPT-4o"
+  name: "GPT-5"
   type: "AzureGPT" 
   return_logprobs: true
   
   api_version: "2025-01-01-preview"
   azure_endpoint: "https://trapi.research.microsoft.com/msra/shared"
   
-  model: "gpt-4o_2024-08-06"
+  model: "gpt-5-chat_2025-08-07"
   azure_ad_scope: "api://trapi/.default"
   
   temperature: 0.0      
   top_p: 1.0
   max_completion_tokens: 20
-  repetition_penalty: 1.0
   return_logprobs_count: 20
+  repetition_penalty: 1.0
   max_attempts: 20
   sleep_time: 5
   save_interval: 10

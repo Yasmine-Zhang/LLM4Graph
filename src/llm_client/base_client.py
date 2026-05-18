@@ -66,8 +66,10 @@ class BaseClient(ABC):
             logger.info("All target nodes have been predicted. Skipping inference.")
         else:
             logger.info(f"Remaining nodes to predict: {len(remaining_indices)}")
-            
-            save_path = os.path.join(output_dir, "llm_predictions.json")
+
+            # Use the same cache path for resume + periodic save + final save.
+            # In sharded mode this is llm_predictions.{shard_id}.json.
+            save_path = llm_cache_path
             processed_count = 0
             
             # Process remaining nodes
@@ -103,11 +105,11 @@ class BaseClient(ABC):
             
         return predictions
 
-    def predict(self, message: str, candidates: List[str], system_prompt: Optional[str] = None) -> Tuple[str, float, str]:
+    def predict(self, message: str, candidates: List[str], system_prompt: Optional[str] = None) -> Tuple[str, Dict, str]:
         """
         Predicts the class for the message text.
         Retries if the output is not in candidates or API fails.
-        Returns: (predicted_category, confidence_score, full_response_text)
+        Returns: (predicted_category, logprobs_dict, full_response_text)
         """
         sys_prompt = system_prompt if system_prompt is not None else ""
         
@@ -120,7 +122,7 @@ class BaseClient(ABC):
         
         for attempt in range(self.max_attempts):
             try:
-                response, log_prob = self.predict_once(messages=messages)
+                response, logprobs_seq = self.predict_once(messages=messages)
                 last_response = response # Keep track for fallback
                 
                 # CoT Parsing Logic
@@ -185,29 +187,51 @@ class BaseClient(ABC):
                 match_idx = candidates_lower.index(response_lower)
                 canonical_response = candidates[match_idx]
                 
-                return canonical_response, log_prob, response
+                # Extract category probabilities from logprobs sequence
+                # Only include categories that appear in candidates list
+                candidate_probs = {}
+                
+                # Build a cumulative text as we process each token step
+                cumulative_text = ""
+                cumulative_logprob = 0.0
+                
+                for step in logprobs_seq:
+                    # Check all top candidates at this step
+                    for alt_token, alt_logprob in step.get('top_logprobs', {}).items():
+                        test_text = (cumulative_text + alt_token).lower().replace(" ", "").replace("`", "").replace("\n", "")
+                        
+                        # Check if any candidate category is fully contained in this cumulative text
+                        for c in candidates:
+                            c_clean = c.lower()
+                            if c_clean in test_text:
+                                prob = cumulative_logprob + alt_logprob
+                                # Only update if this is a better score for this candidate
+                                if c not in candidate_probs or prob > candidate_probs[c]:
+                                    candidate_probs[c] = prob
+                    
+                    # Move to next step
+                    cumulative_text += step.get('token', '')
+                    cumulative_logprob += step.get('logprob', 0.0)
+
+                # Fallback: if parsing failed, return empty (don't pollute with garbage)
+                if not candidate_probs:
+                    candidate_probs = {}
+
+                return canonical_response, candidate_probs, response
                 
             except Exception as e:
                 sleep(self.sleep_time)
                 continue
 
         # If we failed all attempts, return the last raw response so we can debug it
-        return candidates[0], -999.0, last_response
+        return candidates[0], {}, last_response
 
     @abstractmethod
-    def predict_once(self, messages: List[Dict[str, str]]) -> Tuple[str, float]:
+    def predict_once(self, messages: List[Dict[str, str]]) -> Tuple[str, List[Dict]]:
         """
         Abstract method to be implemented by clients.
-        Should return (full_text_response, confidence_score).
-        """
-        pass
-
-
-    @abstractmethod
-    def predict_once(self, messages: List[Dict[str, str]]) -> Tuple[str, float]:
-        """
-        Abstract method to be implemented by specific clients.
-        Should return (response_string, log_probability).
+        Should return (full_text_response, logprobs_seq).
+        logprobs_seq is a list of dicts: [{'token': str, 'logprob': float, 'top_logprobs': {str: float}}]
         """
         pass
 
