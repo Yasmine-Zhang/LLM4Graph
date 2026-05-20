@@ -13,7 +13,6 @@ from src.util.log import setup_logger
 def parse_args():
     parser = argparse.ArgumentParser(description="GNN-only pipeline (filter/train/infer)")
     parser.add_argument('-c', '--config', required=True, help="Path to config file")
-    parser.add_argument('-e', '--experiment', type=str, help="Experiment name (overrides config)")
     return parser.parse_args()
 
 
@@ -83,7 +82,7 @@ def main():
     args = parse_args()
     config = load_config(args.config)
     
-    exp_name = args.experiment if args.experiment else config['experiment']['name']
+    exp_name = config['experiment']['name']
     output_dir = os.path.join("output", exp_name)
     
     os.makedirs(output_dir, exist_ok=True)

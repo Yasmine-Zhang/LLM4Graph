@@ -17,7 +17,6 @@ import sys
 def parse_args():
     parser = argparse.ArgumentParser(description="LLM-only parallel inference pipeline")
     parser.add_argument('-c', '--config', required=True, help="Path to config file")
-    parser.add_argument('-e', '--experiment', type=str, help="Experiment name (overrides config)")
     parser.add_argument('-l', '--llm_cache', type=str, help="Path to existing LLM prediction cache")
     parser.add_argument('--num_shards', type=int, default=1, help="Number of parallel shards")
     # No --merge_only, always merge after all shards
@@ -27,7 +26,7 @@ def parse_args():
 
 def run_shard(shard_id, num_shards, args):
     config = load_config(args.config)
-    exp_name = args.experiment if args.experiment else config['experiment']['name']
+    exp_name = config['experiment']['name']
     output_dir = setup_output_dir(config, exp_name, args.config)
     logger, log_file = setup_logger(output_dir, log_file_name=f"run_shard{shard_id}.log")
 
@@ -103,7 +102,7 @@ def merge_shard_outputs(output_dir, num_shards):
 def main():
     args = parse_args()
     config = load_config(args.config)
-    exp_name = args.experiment if args.experiment else config['experiment']['name']
+    exp_name = config['experiment']['name']
     output_dir = setup_output_dir(config, exp_name, args.config)
 
     # Launch parallel processes for each shard
