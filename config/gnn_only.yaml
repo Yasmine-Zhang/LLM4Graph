@@ -1,0 +1,61 @@
+experiment:
+  name: Arxiv.supervised
+  seed: 42
+  device: cuda:0
+
+gnn_training_data_filter:
+  method: supervised
+ensemble:
+  threshold: 0.99
+
+gnn:
+  hidden_channels: 256
+  num_layers: 3
+  dropout: 0.5
+  lr: 0.01
+  epochs: 500
+
+dataset:
+  name: ogbn-arxiv
+  root: data
+  categories:
+  - cs.NA
+  - cs.MM
+  - cs.LO
+  - cs.CY
+  - cs.CR
+  - cs.DC
+  - cs.HC
+  - cs.CE
+  - cs.NI
+  - cs.CC
+  - cs.AI
+  - cs.MA
+  - cs.GL
+  - cs.NE
+  - cs.SC
+  - cs.AR
+  - cs.CV
+  - cs.GR
+  - cs.ET
+  - cs.SY
+  - cs.CG
+  - cs.OH
+  - cs.PL
+  - cs.SE
+  - cs.LG
+  - cs.SD
+  - cs.SI
+  - cs.RO
+  - cs.IT
+  - cs.PF
+  - cs.CL
+  - cs.IR
+  - cs.MS
+  - cs.FL
+  - cs.DS
+  - cs.OS
+  - cs.GT
+
+final_prediction:
+  method: gnn_only
