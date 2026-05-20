@@ -1,5 +1,5 @@
 experiment:
-  name: "Arxiv.Ministral-3-8B-Instruct-2512.threshold_abstain"
+  name: "Arxiv.Mistral-7B-Instruct-v0.3.threshold_abstain"
   seed: 42
   device: "cuda:0"
 
@@ -121,7 +121,7 @@ dataset:
 
 llm:
   type: "TransformersClient"
-  name: "mistralai/Ministral-3-8B-Instruct-2512"
+  name: "mistralai/Mistral-7B-Instruct-v0.3"
   device_id: 0
   think: false
   max_new_tokens: 100

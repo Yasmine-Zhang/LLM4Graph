@@ -1,11 +1,10 @@
 experiment:
-  name: "Arxiv.Ministral-3-8B-Instruct-2512.threshold"
+  name: "Arxiv.Mistral-7B-Instruct-v0.3.all"
   seed: 42
   device: "cuda:0"
 
 data_filter:
-  method: "confidence_threshold"
-  threshold: 0.8
+  method: "all" # Policy: Trust ALL LLM predictions
 
 ensemble:
   threshold: 0.99
@@ -65,7 +64,7 @@ dataset:
     2. Do NOT provide any explanation or reasoning.
     3. Do NOT include the category description name.
     4. Do NOT think. Do NOT use <think> tags. Output the category directly.
-    
+
   prompt_template: |
     Please classify the following paper into the single most appropriate PRIMARY category from following list:
     
@@ -110,7 +109,6 @@ dataset:
     cs.DL (Digital Libraries)
     cs.DM (Discrete Mathematics)
 
-
     Paper Title: "{title}"
     Abstract: "{abstract}"
     
@@ -118,13 +116,14 @@ dataset:
 
 llm:
   type: "TransformersClient"
-  name: "mistralai/Ministral-3-8B-Instruct-2512"
+  name: "mistralai/Mistral-7B-Instruct-v0.3"
   device_id: 0
   think: false
   max_new_tokens: 100
   temperature: 0.0
   top_p: 1.0
   save_interval: 10
+
 
 gnn:
   # Standard GCN params

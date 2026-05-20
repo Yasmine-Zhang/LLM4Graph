@@ -61,9 +61,11 @@ class TransformersClient(BaseClient):
             if self.pipeline.tokenizer.padding_side != 'left':
                 self.pipeline.tokenizer.padding_side = 'left'
 
-    def predict_once(self, messages: List[Dict[str, str]]) -> Tuple[str, float]:
+    def predict_once(self, messages: List[Dict[str, str]]) -> Tuple[str, List[Dict]]:
         """
-        Executes a single chat completion and returns content + logprob.
+        Executes a single chat completion and returns content + logprobs_seq.
+        Returns: (generated_text, logprobs_seq)
+        logprobs_seq: list of dicts like [{'token': str, 'logprob': float, 'top_logprobs': {str: float}}]
         """
         # Prepare prompts
         prompt_kwargs = {
@@ -117,9 +119,9 @@ class TransformersClient(BaseClient):
         generated_ids = sequences[0][input_len:]
         generated_text = self.pipeline.tokenizer.decode(generated_ids, skip_special_tokens=True)
         
-        # Calculate LogProb (Confidence)
+        # Extract per-token logprobs with top-k candidates
+        logprobs_seq = []
         if scores:
-            log_probs = []
             for i, token_id in enumerate(generated_ids):
                 if i < len(scores):
                     # Step i scores: [Batch=1, Vocab]
@@ -128,13 +130,23 @@ class TransformersClient(BaseClient):
                     step_log_probs = torch.nn.functional.log_softmax(step_scores, dim=-1)
                     # Get log_prob of the selected token
                     token_log_prob = step_log_probs[0, token_id].item()
-                    log_probs.append(token_log_prob)
-            
-            if log_probs:
-                avg_log_prob = sum(log_probs) / len(log_probs)
-            else:
-                avg_log_prob = -999.0
-        else:
-            avg_log_prob = -999.0
+                    token_str = self.pipeline.tokenizer.decode([token_id], skip_special_tokens=False)
+                    
+                    # Get top-k logprobs (all vocab in local model)
+                    top_k_count = self.config.get("return_logprobs_count", 20)
+                    top_k_logprobs_vals, top_k_logprobs_indices = torch.topk(
+                        step_log_probs[0], k=min(top_k_count, step_log_probs.shape[-1])
+                    )
+                    
+                    top_logprobs_dict = {}
+                    for val, idx in zip(top_k_logprobs_vals.cpu().numpy(), top_k_logprobs_indices.cpu().numpy()):
+                        top_token_str = self.pipeline.tokenizer.decode([idx], skip_special_tokens=False)
+                        top_logprobs_dict[top_token_str] = float(val)
+                    
+                    logprobs_seq.append({
+                        'token': token_str,
+                        'logprob': token_log_prob,
+                        'top_logprobs': top_logprobs_dict
+                    })
 
-        return generated_text, avg_log_prob
+        return generated_text, logprobs_seq

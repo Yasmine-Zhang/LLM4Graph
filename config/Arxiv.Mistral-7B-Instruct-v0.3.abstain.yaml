@@ -1,13 +1,20 @@
 experiment:
-  name: "Arxiv.Ministral-3-8B-Instruct-2512"
+  name: "Arxiv.Mistral-7B-Instruct-v0.3.abstain"
   seed: 42
   device: "cuda:0"
+
+data_filter:
+  method: "all"
+
+ensemble:
+  threshold: 0.99 
 
 dataset:
   name: "ogbn-arxiv"
   root: "data"
   
   categories: 
+    - UNCERTAIN
     - cs.NA
     - cs.MM
     - cs.LO
@@ -58,7 +65,8 @@ dataset:
     2. Do NOT provide any explanation or reasoning.
     3. Do NOT include the category description name.
     4. Do NOT think. Do NOT use <think> tags. Output the category directly.
-    
+    5. If the paper is ambiguous, overlaps multiple categories significantly, or you are not strictly confident in the Primary Category, output **UNCERTAIN**.
+
   prompt_template: |
     Please classify the following paper into the single most appropriate PRIMARY category from following list:
     
@@ -103,17 +111,27 @@ dataset:
     cs.DL (Digital Libraries)
     cs.DM (Discrete Mathematics)
 
+    If you are not strictly confident, choose UNCERTAIN.
+
     Paper Title: "{title}"
     Abstract: "{abstract}"
     
-    Category (cs.XX):
+    Category (cs.XX or UNCERTAIN):
 
 llm:
   type: "TransformersClient"
-  name: "mistralai/Ministral-3-8B-Instruct-2512"
+  name: "mistralai/Mistral-7B-Instruct-v0.3"
   device_id: 0
   think: false
   max_new_tokens: 100
   temperature: 0.0
   top_p: 1.0
   save_interval: 10
+
+gnn:
+  # Standard GCN params
+  hidden_channels: 256
+  num_layers: 3
+  dropout: 0.5
+  lr: 0.01
+  epochs: 500
