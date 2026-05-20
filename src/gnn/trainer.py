@@ -144,3 +144,37 @@ class GNNTrainer:
             
         logger.info(f"GNN Inference completed. Saved to {save_path}")
         return predictions
+
+    @torch.no_grad()
+    def run_gnn_inference_with_probs(self, data, output_dir, logger, num_classes):
+        """
+        Run inference and save predictions with full softmax probability distribution.
+        Outputs: {node_idx: {"gnn_predict": class_idx, "gnn_probs": {class_id: prob, ...}}}
+        """
+        logger.info("Running GNN Inference with full probability distribution...")
+        
+        # Get predictions and logits
+        preds = self.predict(data)
+        preds_np = preds.cpu().numpy()
+        
+        # Get logits and apply softmax
+        logits = self.get_probs(data)
+        probs = F.softmax(logits, dim=1).cpu().numpy()
+        
+        predictions = {}
+        for idx in range(data.num_nodes):
+            # Extract probabilities for all classes
+            class_probs = {int(class_id): float(probs[idx, class_id]) for class_id in range(num_classes)}
+            
+            predictions[int(idx)] = {
+                "gnn_predict": int(preds_np[idx]),
+                "gnn_confidence": float(probs[idx].max()),
+                "gnn_probs": class_probs
+            }
+            
+        save_path = os.path.join(output_dir, "gnn_predictions.json")
+        with open(save_path, 'w') as f:
+            json.dump(predictions, f, indent=2)
+            
+        logger.info(f"GNN Inference completed. Saved to {save_path} with full probability distributions")
+        return predictions

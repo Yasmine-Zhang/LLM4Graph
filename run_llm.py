@@ -47,6 +47,14 @@ def run_shard(shard_id, num_shards, args):
     else:
         llm_conf['system_prompt'] = config['dataset']['system_prompt']
 
+    # For TransformersClient: assign device_id based on shard_id (round-robin across available GPUs)
+    # This enables true parallel inference on multiple GPUs
+    if llm_conf.get('type') == 'TransformersClient':
+        num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 1
+        assigned_device_id = shard_id % num_gpus
+        llm_conf['device_id'] = assigned_device_id
+        logger.info(f"Shard {shard_id}: Assigned to GPU {assigned_device_id} (out of {num_gpus})")
+
     # Per-shard output file
     shard_output = os.path.join(output_dir, f"llm_predictions.{shard_id}.json")
     cache_hit = False

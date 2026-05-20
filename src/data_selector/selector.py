@@ -2,6 +2,42 @@ import math
 import numpy as np
 import pandas as pd
 
+
+def _to_probability(conf_value, pred_label=None):
+    """
+    Convert confidence in different formats to a probability in [0, 1].
+    Supported inputs:
+    - float/int logprob or probability
+    - str number
+    - dict[label -> logprob/probability]
+    """
+    val = None
+
+    if isinstance(conf_value, dict):
+        # Prefer confidence corresponding to parsed/predicted label.
+        if pred_label and pred_label in conf_value:
+            val = conf_value[pred_label]
+        elif pred_label and pred_label.lower() in conf_value:
+            val = conf_value[pred_label.lower()]
+        elif conf_value:
+            # Fallback: use the best candidate value from the dict.
+            val = max(conf_value.values())
+    else:
+        val = conf_value
+
+    try:
+        val = float(val)
+    except (TypeError, ValueError):
+        return 0.0
+
+    # Heuristic: negative values are usually logprobs; [0,1] are probabilities.
+    prob = math.exp(val) if val < 0 else val
+    if prob < 0:
+        return 0.0
+    if prob > 1.0:
+        return 1.0
+    return prob
+
 def select_anchors(predictions, label_map_inv, config, logger, **kwargs):
     """
     Unified entry point for anchor selection.
@@ -45,13 +81,18 @@ def select_anchors(predictions, label_map_inv, config, logger, **kwargs):
                     conf = val # Override logprob with explicit confidence
             except: pass
 
-        # 2. Try Extract Category (e.g., "Category: cs.AI" or just "cs.AI" at the end)
-        # First check for explicit "Category:" tag
+        # 2. Determine category label.
+        # Prefer normalized llm_predict when available, then parse raw text.
         pred_str = ""
+        llm_predict = res.get('llm_predict', '')
+        if isinstance(llm_predict, str) and llm_predict.strip():
+            pred_str = llm_predict.strip().upper().replace('ARXIV ', '').replace(' ', '.')
+
+        # First check for explicit "Category:" tag if llm_predict missing/invalid.
         cat_match = re.search(r'Category\s*[:=]\s*(cs\.[a-z]{2})', raw_text, re.IGNORECASE)
-        if cat_match:
+        if not pred_str and cat_match:
             pred_str = cat_match.group(1).upper()
-        else:
+        elif not pred_str:
             # Fallback: Look for the *last* valid category code in the text
             # This handles "The answer is cs.AI" or "cs.AI"
             all_cats = re.findall(r'cs\.[a-z]{2}', raw_text, re.IGNORECASE)
@@ -63,9 +104,8 @@ def select_anchors(predictions, label_map_inv, config, logger, **kwargs):
 
         # --- End Parsing ---
 
-        # Handle potential LogProb or Probability
-        prob = conf if conf > 0 else math.exp(conf)
-        if prob > 1.0: prob = 1.0
+        # Handle confidence in scalar/dict formats.
+        prob = _to_probability(conf, pred_str)
         
         if pred_str in label_map_inv:
             cat_idx = label_map_inv[pred_str]
@@ -100,9 +140,12 @@ def select_anchors(predictions, label_map_inv, config, logger, **kwargs):
     pseudo_labels = selected_df['pred_idx'].tolist()
     
     # Simple statistical report
-    counts = selected_df['pred_idx'].value_counts()
-    min_c, max_c = counts.min(), counts.max()
-    logger.info(f"Selected {len(pseudo_indices)} anchors. Class distribution: Min={min_c}, Max={max_c}")
+    if not selected_df.empty:
+        counts = selected_df['pred_idx'].value_counts()
+        min_c, max_c = counts.min(), counts.max()
+        logger.info(f"Selected {len(pseudo_indices)} anchors. Class distribution: Min={min_c}, Max={max_c}")
+    else:
+        logger.info("Selected 0 anchors after filtering.")
     
     return pseudo_indices, pseudo_labels
 

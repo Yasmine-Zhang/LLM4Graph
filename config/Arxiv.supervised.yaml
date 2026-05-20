@@ -3,7 +3,7 @@ experiment:
   seed: 42
   device: "cuda:0"
 
-data_filter:
+gnn_training_data_filter:
   method: "supervised"
 
 ensemble:
