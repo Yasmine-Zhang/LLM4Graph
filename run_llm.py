@@ -111,8 +111,15 @@ def main():
         p = Process(target=run_shard, args=(shard_id, args.num_shards, args))
         p.start()
         procs.append(p)
-    for p in procs:
+    shard_failures = []
+    for i, p in enumerate(procs):
         p.join()
+        if p.exitcode != 0:
+            shard_failures.append((i, p.exitcode))
+
+    if shard_failures:
+        detail = ", ".join([f"shard {sid} exit={code}" for sid, code in shard_failures])
+        raise RuntimeError(f"run_llm failed: {detail}")
 
     # Always merge outputs after all shards finish
     merge_shard_outputs(output_dir, args.num_shards)

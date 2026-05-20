@@ -5,6 +5,11 @@ from typing import List, Dict, Optional, Tuple
 from src.llm_client.base_client import BaseClient
 import logging
 
+try:
+    from transformers import FineGrainedFP8Config
+except Exception:
+    FineGrainedFP8Config = None
+
 class TransformersClient(BaseClient):
     """
     Client for local Transformers models (HuggingFace).
@@ -41,17 +46,35 @@ class TransformersClient(BaseClient):
             
         logger_local = logging.getLogger(__name__)
 
-        # Initialize Pipeline (Minimal logic)
-        self.pipeline = transformers.pipeline(
-            "text-generation",
-            model=self.model_path,
-            model_kwargs={
-                "dtype": torch.bfloat16,
-                "attn_implementation": target_attn_impl, 
-            },
-            device=device,
-            trust_remote_code=True,
-        )
+        # Build model kwargs with optional Ministral FP8 dequantization.
+        model_kwargs = {
+            "dtype": torch.bfloat16,
+            "attn_implementation": target_attn_impl,
+        }
+
+        is_ministral_fp8 = "ministral-3" in str(self.model_path).lower()
+        if is_ministral_fp8 and FineGrainedFP8Config is not None:
+            logger_local.info("Ministral FP8 detected, enabling FineGrainedFP8 dequantization.")
+            model_kwargs["quantization_config"] = FineGrainedFP8Config(dequantize=True)
+
+        # Initialize Pipeline.
+        # For FP8 Ministral, device_map='auto' is more robust than fixed device index.
+        if is_ministral_fp8:
+            self.pipeline = transformers.pipeline(
+                "text-generation",
+                model=self.model_path,
+                model_kwargs=model_kwargs,
+                trust_remote_code=True,
+                device_map="auto",
+            )
+        else:
+            self.pipeline = transformers.pipeline(
+                "text-generation",
+                model=self.model_path,
+                model_kwargs=model_kwargs,
+                device=device,
+                trust_remote_code=True,
+            )
         
         print(f"DEBUG: Model {self.model_path} loaded on device: {self.pipeline.model.device}. requested device_id: {self.device_id}")
 
