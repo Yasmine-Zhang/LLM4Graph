@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 import numpy as np
 import torch
 
+from src.analysis.soft_energy_router import optimize_conflict_soft_energy, optimize_soft_energy
 from src.data_loader.get_dataset import get_dataset
 from src.util.log import setup_logger
 from src.util.util import load_config, setup_output_dir
@@ -87,10 +88,10 @@ def main():
 
     final_cfg = config.get("final_prediction", {})
     method = final_cfg.get("method")
-    if method not in {"llm_only", "gnn_only", "hard_threshold"}:
+    if method not in {"llm_only", "gnn_only", "hard_threshold", "soft_energy", "conflict_soft_energy"}:
         raise ValueError(
             "Unsupported final_prediction.method. "
-            f"Got: {method}. Expected one of: llm_only, gnn_only, hard_threshold"
+            f"Got: {method}. Expected one of: llm_only, gnn_only, hard_threshold, soft_energy, conflict_soft_energy"
         )
 
     threshold = float(final_cfg.get("threshold", 0.99))
@@ -100,6 +101,10 @@ def main():
     logger.info(f"Output tag: {safe_output_tag}")
     if method == "hard_threshold":
         logger.info(f"Hard threshold: {threshold}")
+    if method == "soft_energy":
+        logger.info("Using soft_energy test-time routing")
+    if method == "conflict_soft_energy":
+        logger.info("Using conflict_soft_energy routing (conflict-only optimization)")
 
     llm_path = os.path.join(output_dir, "llm_predictions.json")
     gnn_path = os.path.join(output_dir, "gnn_predictions.json")
@@ -131,56 +136,113 @@ def main():
         name: {"correct": 0, "total": 0, "resolved": 0} for name in split_names
     }
 
-    source_counts = {"llm": 0, "gnn": 0, "none": 0}
+    source_counts: Dict[str, int] = {}
     predictions_out = []
 
     correct_total = 0
     resolved_total = 0
     total_nodes = data.num_nodes
 
+    soft_result = None
+    if method == "soft_energy":
+        soft_cfg = final_cfg.get("soft_energy", {})
+        soft_result = optimize_soft_energy(
+            data=data,
+            llm_preds=llm_preds,
+            gnn_preds=gnn_preds,
+            inv_map=inv_map,
+            num_classes=int(loader.dataset.num_classes),
+            cfg=soft_cfg,
+            logger=logger,
+        )
+        logger.info(
+            "soft_energy summary: "
+            f"mean_alpha={soft_result['diagnostics']['mean_alpha']:.4f}, "
+            f"conflict_ratio={soft_result['diagnostics']['conflict_ratio']:.4f}, "
+            f"final_rel_change={soft_result['diagnostics']['final_rel_change']}"
+        )
+    elif method == "conflict_soft_energy":
+        soft_cfg = final_cfg.get("conflict_soft_energy", final_cfg.get("soft_energy", {}))
+        soft_result = optimize_conflict_soft_energy(
+            data=data,
+            llm_preds=llm_preds,
+            gnn_preds=gnn_preds,
+            inv_map=inv_map,
+            num_classes=int(loader.dataset.num_classes),
+            cfg=soft_cfg,
+            logger=logger,
+        )
+        logger.info(
+            "conflict_soft_energy summary: "
+            f"mean_alpha={soft_result['diagnostics']['mean_alpha']:.4f}, "
+            f"conflict_ratio={soft_result['diagnostics']['conflict_ratio']:.4f}, "
+            f"final_rel_change={soft_result['diagnostics']['final_rel_change']}"
+        )
+
     logger.info("Running final fusion for all nodes...")
     for node_idx in range(total_nodes):
         subset = node_to_subset.get(node_idx, "unknown")
         gt_idx = int(gt[node_idx])
 
-        llm_res = llm_preds.get(node_idx, {})
-        gnn_res = gnn_preds.get(node_idx, {})
+        alpha_value = None
+        is_conflict = None
 
-        llm_label_raw = llm_res.get("llm_predict")
-        llm_label_norm = normalize_llm_label(llm_label_raw)
-        llm_idx = inv_map.get(llm_label_norm)
+        if method in {"soft_energy", "conflict_soft_energy"} and soft_result is not None:
+            llm_label_raw = soft_result["llm_label_raw"][node_idx]
+            llm_conf_raw = soft_result["llm_conf_raw"][node_idx]
+            llm_prob = float(soft_result["llm_confidence_prob"][node_idx])
 
-        llm_conf_raw = llm_res.get("llm_confident", -999)
-        llm_prob = to_probability(llm_conf_raw, llm_label_norm)
+            llm_idx_raw = int(soft_result["llm_idx"][node_idx])
+            llm_idx = llm_idx_raw if llm_idx_raw >= 0 else None
 
-        gnn_idx = gnn_res.get("gnn_predict")
-        if gnn_idx is not None:
-            gnn_idx = int(gnn_idx)
+            gnn_idx_raw = int(soft_result["gnn_idx"][node_idx])
+            gnn_idx = gnn_idx_raw if gnn_idx_raw >= 0 else None
 
-        final_idx = None
-        source = "none"
+            final_idx_raw = int(soft_result["final_idx"][node_idx])
+            final_idx = final_idx_raw if final_idx_raw >= 0 else None
 
-        if method == "llm_only":
-            if llm_idx is not None:
-                final_idx = int(llm_idx)
-                source = "llm"
-        elif method == "gnn_only":
+            source = str(soft_result["source"][node_idx])
+            alpha_value = float(soft_result["alpha"][node_idx])
+            is_conflict = bool(soft_result["conflict_mask"][node_idx])
+        else:
+            llm_res = llm_preds.get(node_idx, {})
+            gnn_res = gnn_preds.get(node_idx, {})
+
+            llm_label_raw = llm_res.get("llm_predict")
+            llm_label_norm = normalize_llm_label(llm_label_raw)
+            llm_idx = inv_map.get(llm_label_norm)
+
+            llm_conf_raw = llm_res.get("llm_confident", -999)
+            llm_prob = to_probability(llm_conf_raw, llm_label_norm)
+
+            gnn_idx = gnn_res.get("gnn_predict")
             if gnn_idx is not None:
-                final_idx = int(gnn_idx)
-                source = "gnn"
-        else:  # hard_threshold
-            if llm_idx is not None and llm_prob >= threshold:
-                final_idx = int(llm_idx)
-                source = "llm"
-            elif gnn_idx is not None:
-                final_idx = int(gnn_idx)
-                source = "gnn"
-            elif llm_idx is not None:
-                # Fallback when GNN prediction is unexpectedly missing
-                final_idx = int(llm_idx)
-                source = "llm"
+                gnn_idx = int(gnn_idx)
 
-        source_counts[source] += 1
+            final_idx = None
+            source = "none"
+
+            if method == "llm_only":
+                if llm_idx is not None:
+                    final_idx = int(llm_idx)
+                    source = "llm"
+            elif method == "gnn_only":
+                if gnn_idx is not None:
+                    final_idx = int(gnn_idx)
+                    source = "gnn"
+            else:  # hard_threshold
+                if llm_idx is not None and llm_prob >= threshold:
+                    final_idx = int(llm_idx)
+                    source = "llm"
+                elif gnn_idx is not None:
+                    final_idx = int(gnn_idx)
+                    source = "gnn"
+                elif llm_idx is not None:
+                    # Fallback when GNN prediction is unexpectedly missing
+                    final_idx = int(llm_idx)
+                    source = "llm"
+
+        source_counts[source] = source_counts.get(source, 0) + 1
 
         is_correct = False
         if final_idx is not None:
@@ -209,6 +271,8 @@ def main():
                 "is_correct": is_correct,
                 "final_predict_category": get_category_str(label_map, final_idx),
                 "ground_truth_category": get_category_str(label_map, gt_idx),
+                "alpha": alpha_value,
+                "is_conflict": is_conflict,
             }
         )
 
@@ -243,6 +307,16 @@ def main():
 
     if method == "hard_threshold":
         metrics["threshold"] = threshold
+    if method == "soft_energy" and soft_result is not None:
+        metrics["soft_energy"] = {
+            "config": final_cfg.get("soft_energy", {}),
+            "diagnostics": soft_result["diagnostics"],
+        }
+    if method == "conflict_soft_energy" and soft_result is not None:
+        metrics["conflict_soft_energy"] = {
+            "config": final_cfg.get("conflict_soft_energy", final_cfg.get("soft_energy", {})),
+            "diagnostics": soft_result["diagnostics"],
+        }
 
     metrics_path = os.path.join(output_dir, f"final_metrics.{safe_output_tag}.json")
     preds_path = os.path.join(output_dir, f"final_predictions.{safe_output_tag}.json")
