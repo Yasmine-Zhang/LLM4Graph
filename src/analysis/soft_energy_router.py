@@ -253,6 +253,9 @@ def optimize_conflict_soft_energy(
     gnn_margin_weight = float(cfg.get("gnn_margin_weight", 0.0))
     llm_agree_weight = float(cfg.get("llm_agree_weight", 0.0))
     gnn_agree_weight = float(cfg.get("gnn_agree_weight", 0.0))
+    llm_entropy_weight = float(cfg.get("llm_entropy_weight", 0.0))
+    gnn_entropy_weight = float(cfg.get("gnn_entropy_weight", 0.0))
+    expert_bias_weight = float(cfg.get("expert_bias_weight", 0.0))
     score_temp = float(cfg.get("score_temp", 0.05))
     lambda_sparse = float(cfg.get("lambda_sparse", 0.0))
     lambda_balance = float(cfg.get("lambda_balance", 0.0))
@@ -288,6 +291,9 @@ def optimize_conflict_soft_energy(
     gnn_sorted = np.sort(gnn_probs, axis=1)
     llm_margin = llm_sorted[:, -1] - llm_sorted[:, -2]
     gnn_margin = gnn_sorted[:, -1] - gnn_sorted[:, -2]
+    log_k = max(np.log(float(max(num_classes, 2))), eps)
+    llm_entropy = -np.sum(llm_probs * np.log(llm_probs + eps), axis=1) / log_k
+    gnn_entropy = -np.sum(gnn_probs * np.log(gnn_probs + eps), axis=1) / log_k
 
     conf_gap = np.abs(llm_conf - gnn_conf)
     margin_gap = np.abs(llm_margin - gnn_margin)
@@ -312,9 +318,27 @@ def optimize_conflict_soft_energy(
     llm_agree = llm_agree / (deg + eps)
     gnn_agree = gnn_agree / (deg + eps)
 
-    llm_score = llm_conf + llm_margin_weight * llm_margin + llm_agree_weight * llm_agree
-    gnn_score = gnn_conf + gnn_margin_weight * gnn_margin + gnn_agree_weight * gnn_agree
+    llm_score = (
+        llm_conf
+        + llm_margin_weight * llm_margin
+        + llm_agree_weight * llm_agree
+        - llm_entropy_weight * llm_entropy
+    )
+    gnn_score = (
+        gnn_conf
+        + gnn_margin_weight * gnn_margin
+        + gnn_agree_weight * gnn_agree
+        - gnn_entropy_weight * gnn_entropy
+    )
+    # Unsupervised global bias: estimate which expert is stronger on stable (non-conflict) nodes.
+    stable_mask = (~conflict_mask) & (llm_idx >= 0) & (gnn_idx >= 0)
+    if stable_mask.any():
+        expert_bias = float(np.mean(llm_score[stable_mask] - gnn_score[stable_mask]))
+    else:
+        expert_bias = 0.0
+
     score_diff = llm_score - gnn_score
+    score_diff += expert_bias_weight * expert_bias
     q = 1.0 / (1.0 + np.exp(-score_diff / max(score_temp, eps)))
     z = (llm_score >= gnn_score).astype(np.float64)
 
@@ -350,7 +374,10 @@ def optimize_conflict_soft_energy(
         f"min_margin={conflict_min_margin}, min_margin_gap={conflict_min_margin_gap}, "
         f"fallback_non_active_to_hard={fallback_non_active_to_hard}, "
         f"llm_margin_w={llm_margin_weight}, gnn_margin_w={gnn_margin_weight}, "
-        f"llm_agree_w={llm_agree_weight}, gnn_agree_w={gnn_agree_weight}, score_temp={score_temp}, "
+        f"llm_agree_w={llm_agree_weight}, gnn_agree_w={gnn_agree_weight}, "
+        f"llm_entropy_w={llm_entropy_weight}, gnn_entropy_w={gnn_entropy_weight}, "
+        f"expert_bias_w={expert_bias_weight}, expert_bias={expert_bias}, "
+        f"score_temp={score_temp}, "
         f"lambda_sparse={lambda_sparse}, lambda_balance={lambda_balance}, balance_target={balance_target}"
     )
 

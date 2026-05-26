@@ -121,4 +121,6 @@ final_prediction:
     gnn_margin_weight: 0.2
     llm_agree_weight: 0.3
     gnn_agree_weight: 0.3
+    llm_entropy_weight: 0.15
+    gnn_entropy_weight: 0.15
     score_temp: 0.14
