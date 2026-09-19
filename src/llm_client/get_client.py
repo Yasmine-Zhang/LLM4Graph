@@ -12,6 +12,9 @@ def get_client(config: Dict) -> BaseClient:
     if llm_type == "AzureGPT":
         from src.llm_client.azure_gpt import AzureGPTClient
         llm_client = AzureGPTClient(config=config)
+    elif llm_type in {"GitHubCopilot", "GitHubCopilotClient"}:
+        from src.llm_client.github_copilot_client import GitHubCopilotClient
+        llm_client = GitHubCopilotClient(config=config)
     elif llm_type == "TransformersClient":
         from src.llm_client.transformers_client import TransformersClient
         llm_client = TransformersClient(config=config)

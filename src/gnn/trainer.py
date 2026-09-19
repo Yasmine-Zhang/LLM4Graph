@@ -3,7 +3,7 @@ import torch.nn.functional as F
 import os
 import json
 from typing import Dict
-from src.gnn.model import SimpleGCN
+from src.gnn.model import SimpleGCN, SimpleMLP
 
 
 class GNNTrainer:
@@ -20,7 +20,11 @@ class GNNTrainer:
         self.epochs = config.get("epochs", 100)
         
         # Initialize Model
-        self.model = SimpleGCN(
+        model_type = config.get("model_type", "gcn").lower()
+        model_classes = {"gcn": SimpleGCN, "mlp": SimpleMLP}
+        if model_type not in model_classes:
+            raise ValueError(f"Unknown model_type: {model_type}")
+        self.model = model_classes[model_type](
             in_channels=num_features,
             hidden_channels=hidden_channels,
             out_channels=num_classes,
