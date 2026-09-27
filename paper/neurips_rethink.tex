@@ -1,0 +1,559 @@
+\documentclass{article}
+\usepackage[preprint,main]{neurips_2025}
+\makeatletter
+\renewcommand{\@noticestring}{Unsubmitted working draft; NeurIPS 2025 style used for layout only.}
+\makeatother
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,booktabs,microtype}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{url}
+\title{Rethinking Relational Evidence in Fixed-Candidate Retrieval:\\
+Ablation Gains, Equal-Fact Alternatives, and Decision Advantage}
+\author{Yapu Zhang \\
+Beijing University of Technology \\
+\href{mailto:zhangyapu@bjut.edu.cn}{zhangyapu@bjut.edu.cn}
+\And
+Xianliang Yang\thanks{Corresponding author.} \\
+Microsoft \\
+\href{mailto:xianya@microsoft.com}{xianya@microsoft.com}}
+
+\begin{document}
+\maketitle
+\begin{abstract}
+A positive graph-feature ablation does not by itself establish that graph
+representation is irreplaceable or that a learned decision rule beats a simple
+graph-aware rule. We separate these claims for fixed-pool STaRK-Amazon retrieval.
+An 18-feature ranker on 384 held-out TRAIN queries (H) hits 278 answers, versus
+264 for its fact-deprived text ablation and 263 for a candidate-shuffled graph
+control, but 279 for a top-linked-entity rule using the shared inputs. A distinct
+20-feature adapted ranker on 768 other TRAIN queries (I) hits 568 versus 549 and
+552 for its matched controls, but 573 for the rule. H and I evaluate different
+methods, not two confirmations of one method. Post hoc equal-fact text programs
+reproduce every rule decision and all six original graph columns; an H-informed
+structured-text learner ties the graph ranker at 278/384 on exposed H queries.
+These observations support a bounded relational-feature increment over text
+without relational facts, not graph-only informational value or learned-rule
+superiority. A new cohort is unscored; matched end-to-end resource comparison
+and human semantic review remain outstanding. This is a working draft, not an
+independently confirmed submission.
+\end{abstract}
+
+\section{Introduction}
+Queries about a product and a named reference may require both attribute
+matching and relational evidence. A co-view or co-purchase edge can narrow a
+search, but does not establish that a candidate has the requested role or is
+compatible with the reference. In hybrid retrieval, an improvement relative to
+an ablation that lacks those edges can be mistaken for evidence that graphs are
+uniquely necessary, or that a trained graph ranker is the best decision rule.
+Those claims require different controls.
+
+We ask three questions on the same fixed 20-candidate pools: (1) does matched
+relational evidence add to a ranker whose text branch has no relation facts?
+(2) can a text-side procedure with the \emph{same facts} reproduce graph-driven
+decisions or features? (3) does learned fusion outperform a strong, simple
+rule with the same underlying candidates, rankings, reference links, and edges?
+The distinction between fact availability, representation and decision policy
+is the contribution of this empirical audit, not a new retrieval algorithm.
+It complements studies of semi-structured retrieval \citep{stark,hybgrag,autofocus,grasp}
+and graph reranking \citep{grag,subgraphrag}; neither fixed-pool reranking nor
+matched ablations are claimed as firsts here.
+
+The two frozen Amazon evaluations yield a positive answer to the first question
+for their respective methods, but not to the third. Post hoc text replays
+challenge a claim of fact exclusivity without constituting a matched-budget LLM
+baseline. A separate exploratory MAG author task shows that an author-field
+text join can reproduce graph decisions on linkable queries; it is not a
+cross-domain confirmation. These distinctions matter most when a negative
+strong-baseline result would otherwise be hidden behind a successful ablation.
+
+\section{Related work and contribution boundary}
+\paragraph{Retrieval from text and relations.}
+STaRK \citep{stark} supplies text-and-relation entity retrieval benchmarks;
+its synthetic and human query sources should not be interchanged. Our
+reported Amazon H/I queries come from the official TRAIN pool, and our
+fixed-pool Hit@1 cannot be compared numerically to the benchmark's
+full-corpus TEST systems. HybGRAG \citep{hybgrag} and Autofocus Retrieval
+\citep{autofocus} combine evidence discovery, constraints and reranking;
+GRASP \citep{grasp} studies plan-guided graph retrieval and fusion. We
+freeze the initial 20 products and ask which \emph{inference} follows from
+an additional set of relational features at the decision stage. Such a
+restriction removes important system behavior, notably candidate recall,
+index updates and open-ended reasoning. It is useful for attributing one
+decision change, not a replacement for those end-to-end systems.
+
+\paragraph{Graph reranking and strong controls.}
+G-RAG \citep{grag} already studies graph-based reranking of initial
+retrieval results. SubgraphRAG \citep{subgraphrag} studies structural
+scores and matched-candidate or random-retrieval comparisons. Matching
+candidate pools, shuffling relations and applying LambdaRank
+\citep{lightgbm} are therefore not method inventions. Here the
+additional diagnostic is an ordering of \emph{claims}: first compare
+matched graph features to a fact-deprived text arm, then ask whether
+the same relation facts yield reproducible text-side actions, then
+compare learned selection to an explicit graph-aware rule. Only the
+first stage was an original H/I frozen ablation family; the equal-fact
+parser and structured-text learner were built post hoc. Treating the
+later controls as if they had been prospectively designed would erase
+the very research history that motivates this distinction.
+
+\paragraph{Statistical evidence is not deployment evidence.}
+The paired-query discordance test asks whether a fixed arm yields more
+benchmark fixes than harms under its null assumptions. It does not
+measure semantic compatibility, marginal dollars, or robustness to a
+new source of queries. The top-link rule consumes graph/link facts, so
+its higher hit count challenges the particular learned fusion decision,
+not the utility of graph access. Conversely, a text parser that can
+recreate support moments from recorded typed edges shows that those
+moments are not \emph{informationally exclusive} to a graph data
+structure. It says nothing by itself about online text-model quality
+or compute parity. The contribution is therefore a scoped empirical
+audit of what the existing controls license one to say, not a proposed
+universal replacement for relational search.
+
+\section{Problem and evaluation roles}
+Given query $q$, frozen candidate pool $C_q$ of size 20, and labeled answer
+set $Y_q$, a policy outputs $\pi(q)\in C_q$. Our outcome is
+\begin{equation}
+  \operatorname{Hit@1}(\pi)=\frac{1}{N}\sum_{q=1}^{N}
+  \mathbf{1}\{\pi(q)\in Y_q\}.
+\end{equation}
+The statistical unit is the query, not a candidate, graph world, LLM response,
+or pair of methods. Synthetic benchmark answer sets do not certify semantic
+negatives. We keep official TEST and human queries out of this study.
+
+The graph ranker fits on 768 official TRAIN queries (A/B/F); 384 repeatedly
+used TRAIN queries (C/D/E) serve development. H comprises 384 different TRAIN
+queries sampled by a frozen sorted-ID permutation after method selection.
+The separate adapted 20-feature method additionally fits its semantic encoder
+on 1,024 disjoint TRAIN queries (S), then evaluates on 768 further TRAIN
+queries (I), with its comparison family fixed before query preparation. H and I
+are disjoint but differ in method and supervision; both are now exposed. Neither
+is official TEST, an independent replication of the other, or an independent
+cross-dataset evaluation. Query disjointness does not imply disjoint products,
+graph edges, pretraining corpora, or freedom from historical research selection.
+
+\section{Matched inputs and competing decisions}
+BM25 and a frozen E5 retriever supply the RRF top-20 pool. Two LLM services
+rank those same candidates; one shared reference-extraction call identifies
+at most three named products per query. Each reference has at most three
+frozen linking options. For interpretation $h$ and candidate $v$, let
+\begin{equation}
+ U_q(v,h)=\frac{1}{m_q}\sum_{j=1}^{m_q}
+ \mathbf{1}\{\text{$v$ is connected to reference $j$ in $h$}\},
+\end{equation}
+when $m_q>0$; without a reference, all support statistics are zero. This
+proxy does not enforce direction, edge-type semantics, or product compatibility.
+An 18-dimensional LambdaRank fusion model \citep{lightgbm} combines six symmetric
+two-rank statistics, six frozen semantic/text statistics (including a Qwen
+reranker), and six uniform or link-weighted world-support statistics. Its
+12-dimensional text ablation retains ranks and semantic inputs but has no
+relation facts. A separate shuffled control permutes the six graph columns
+across candidates within each query, using one prespecified seed for training
+and evaluation. These arms share the candidate pools, available rankings,
+supervision and ranker setup; the shuffle is not a randomization of the full
+knowledge graph and has not been repeated across seeds.
+
+The strongest simple comparator first chooses the highest-weight link for
+each mention, then ranks candidates by its support, two-LLM RRF score and
+frozen candidate order in lexicographic sequence. With no references it
+reduces to RRF and the order tie-breaker. This \emph{top-link} rule has access
+to the same underlying evidence, but not identical feature columns or the
+same minimum deployment cost as the learned model. In particular, the learned
+model does not have a hard support-first decision constraint. RRF and Borda
+require fewer components than the graph and Qwen paths when deployed alone.
+The adapted I method adds semantic adaptation and 20-dimensional controls;
+any difference between old and adapted methods also changes training data.
+
+\paragraph{Feature construction and ambiguity.}
+Let $\mathcal M_q$ be the nonempty set of strictly valid rankings, with
+$r_m(v)\in\{1,\ldots,20\}$. The six rank columns are normalized minimum,
+maximum, mean and range of ranks, mean reciprocal rank and fraction of
+first-place votes. These statistics are invariant to exchanging the two
+services; invariance of a feature builder is not invariance of service
+quality. The six nonrelational columns encode initial retrieval rank,
+query/title token overlap, query/product-text token overlap, clipped text
+length, a frozen Qwen yes-minus-no relevance logit, and its difference
+from the query's maximum logit. No logit is treated as a calibrated
+probability.
+
+For mention $j$, define a link option set $R_{qj}$ with weights $w_{qjt}$.
+Title-exact ties receive uniform weights; otherwise weights are a softmax
+of frozen E5 similarities at temperature $0.05$. For
+$h\in\mathcal H_q=\prod_j R_{qj}$, put
+$p_q(h)=\prod_jw_{qj,h_j}$. From $U_q(v,h)$ the six graph columns are
+uniform mean, minimum, maximum and standard deviation across worlds,
+followed by $p_q$-weighted mean and standard deviation. At most 27 worlds
+are explicitly enumerated; the product weights are a heuristic and not
+calibrated entity-linking posteriors. With no mention all six columns are
+zero. The support proxy treats either direction of also-buy and also-view
+as a link, discarding type-specific semantics. Thus an informative feature
+can still reward a wrong product role.
+
+Each query contributes one group of 20 binary-labeled candidates to
+LightGBM LambdaRank: 100 trees, learning rate $0.05$, at most seven leaves,
+minimum 20 examples per leaf, $L_2$ regularization one and ranking truncation
+at four. The frozen training configuration and label gain remain the
+authoritative specification. Scores choose the highest candidate within
+the full pool, breaking ties by frozen candidate order; the learned model
+does \emph{not} restrict its decision to graph-supported items. For I, a
+BGE semantic encoder is adapted on S using up to four positive and
+additional negative training products per query, then frozen before
+the 768-query fusion fitting. Two extra semantic columns bring the adapted
+fusion to 20 features and its adapted text control to 14. Positive injection
+belongs only to encoder training, never evaluation retrieval. The adapted
+encoder adds supervision; old-versus-adapted scores do not isolate a single
+algorithmic change.
+
+\section{What can an ablation establish?}
+\paragraph{Coverage and selection are distinct.}
+For a fixed query let $O_q(D)=\mathbf{1}\{D\cap Y_q\ne\varnothing\}$
+and $H_q(\pi)=\mathbf{1}\{\pi(q)\in Y_q\}$. A ranker restricted to
+$C_q$ satisfies $H_q(\pi)\le O_q(C_q)$. If a graph-constrained policy
+selects from a support domain $E_q\subseteq C_q$, its error decomposes as
+\begin{equation}\label{eq:decomposition}
+  1-H_q(\pi)=[1-O_q(C_q)]+[O_q(C_q)-O_q(E_q)]
+                  +[O_q(E_q)-H_q(\pi)].
+\end{equation}
+The three nonnegative terms count missing candidate answers, answers excluded
+by the domain, and within-domain selection errors. This is an identity for
+the recorded labels, not a graph-correctness theorem. Our 18D fusion scores
+\emph{all} 20 items and is not itself constrained to $E_q$; the decomposition
+applies only to policies that select within their stated domain.
+
+\paragraph{Equal facts do not imply equal computation.}
+Let $F_q$ denote the recorded candidate identities, ranks, link options,
+weights and edges. Both graph-feature extraction and a lossless typed textual
+serialization are deterministic functions of $F_q$. If a parser preserves
+those fields, composing it with the support computation reproduces the same
+support values and any deterministic rule using them. This is a constructive
+\emph{representational} observation, not an assertion that a bounded-token
+language model will learn the parser, that its inputs fit a fixed context,
+or that text indexing and graph traversal have equal latency or cost.
+Fitting a separate lossy text learner is therefore a distinct empirical test.
+
+\paragraph{Decision opportunity is label blind.}
+For two fixed policies $g,t$ on $Q$, put
+$D(g,t)=\{q\in Q:g(q)\ne t(q)\}$ and let $F$ and $B$ count queries
+where $g$ alone and $t$ alone hit, respectively. Directly from the
+definitions,
+\begin{equation}\label{eq:disagreement}
+ \operatorname{Hit@1}(g)-\operatorname{Hit@1}(t)
+ =\frac{F-B}{|Q|},\qquad
+ \left|\operatorname{Hit@1}(g)-\operatorname{Hit@1}(t)\right|
+ \leq \frac{|D(g,t)|}{|Q|}.
+\end{equation}
+Agreement in action forces agreement in hit status for \emph{every} possible
+answer set; disagreement does not guarantee a different hit status. A
+label-blind minimum-disagreement gate can reject comparisons with little
+room for a meaningful difference before answers are opened. Passing the
+gate gives no evidence of superiority, calibration, or significance.
+Equations~\eqref{eq:decomposition}--\eqref{eq:disagreement} are elementary
+bookkeeping tools; we claim no new theorem or population guarantee.
+
+\paragraph{The estimand depends on the control.}
+For two policies on the \emph{same} recorded candidates, define the paired
+query contrast $\delta_q(g,t)=H_q(g)-H_q(t)\in\{-1,0,1\}$. Its observed
+average is $(F-B)/N$, rather than the difference between two independently
+sampled success rates. In the matched H and I ablations, $t$ is a
+separately fitted ranker with graph columns withheld or shuffled. Thus a
+positive contrast establishes an improvement relative to that specified
+\emph{training and feature intervention} on the observed queries. It does
+not identify a causal effect of access to a graph data structure: the
+relation facts are absent from the text-only control, while a same-fact
+text representation is a different intervention. Nor does the paired
+contrast identify the marginal value of adding graph access to a deployed
+retrieval pipeline, because the shared candidate set and upstream calls
+are held fixed by construction.
+
+\paragraph{Why stronger conclusions do not follow.}
+Consider any recorded fact set $F_q$ and a lossless serialization $s(F_q)$.
+The composition $g\circ s^{-1}$ returns exactly the choices of a graph
+policy $g$ wherever the serialization is parseable; this supplies a
+counterexample to a claim that the same facts \emph{must} be represented
+as a graph to produce those choices. It does not supply an efficient
+learner: a bounded model might fail to parse $s(F_q)$, and generating the
+serialization may itself require graph traversal. Conversely, a graph
+feature model can gain over a fact-deprived text ranker yet lose to a
+support-first graph rule, because equal inputs impose no ordering on
+different policies' decisions. The two frozen cohorts exhibit precisely
+that logical configuration. Resource parity, generalization and human
+product relevance each require their own measurement, not an inference
+from the paired hit counts.
+
+\section{Frozen results}
+\paragraph{What was frozen.}
+The H method, 384-query sample, query-level denominator, ten-comparison
+family and response parsing policy were fixed before H query preparation.
+The development rule required positive gains over ten controls, at least
+five distinct fixes over RRF and no development sub-cohort RRF loss worse
+than two. That gate selected whether to run H, not a test statistic.
+The I method was separately frozen after S fitting and development, with
+768 evaluation queries and a \emph{different} 15-comparison family. Neither
+evaluation is an untouched official TEST set; previous experiments may
+have influenced the selected methods. Within each cohort all compared
+policies reuse the available rankings and fixed candidate pools. A strict
+ranking must contain every candidate exactly once. When one service fails
+parsing, the valid ranking is reused for all fusion methods; when both
+fail, the query remains in the denominator with zero fusion hits.
+\begin{table}[t]
+\centering
+\caption{Hit@1 counts on disjoint official TRAIN cohorts. H evaluates the
+18-feature fusion; I evaluates a distinct adapted 20-feature fusion. All
+methods share each cohort's fixed 20-candidate pool. These are not repeated
+tests of a single method.}
+\label{tab:main}
+\small
+\begin{tabular}{lrr}
+\toprule
+Policy & H / 384 & I / 768 \\
+\midrule
+Two-LLM RRF & 261 & 550 \\
+Max-world support & 276 & 570 \\
+Top-link support & \textbf{279} & \textbf{573} \\
+Text fusion without relation facts & 264 & 549 \\
+Shuffled-graph fusion & 263 & 552 \\
+Graph fusion (18D on H; adapted 20D on I) & 278 & 568 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+On H, the graph method exceeds matched text by 14 hits and shuffled graph by
+15. One-sided exact paired discordance tests were adjusted by Holm over the
+\emph{full ten} prespecified comparisons; adjusted $p$ values are 0.002594
+and 0.003279, respectively. The corresponding adjustment for RRF (+17 hits)
+is 0.023952; Borda makes the same choices as RRF here, not an independent
+replication. The graph ranker has 13 fixes and 14 harms against top-link (net $-1$,
+adjusted $p=1$ for graph superiority). On I, the adapted graph exceeds its
+matched text by 19 hits (24 fixes, 5 harms; adjusted $p=0.003277$) and the
+shuffled control by 16 (21 fixes, 5 harms; adjusted $p=0.013717$), with Holm
+applied to \emph{all 15} prespecified comparisons. Against top-link the adapted
+method instead has 20 fixes and 25 harms (net $-5$; adjusted $p=1$). The
+adapted-vs-original graph difference on I is +5, not significant after the
+prespecified adjustment. These families do not correct for all method
+selection in the preceding research history; nonsignificance against the
+rule establishes neither equivalence nor noninferiority.
+
+\begin{table}[t]
+\centering
+\caption{Selected paired results for the frozen primary method versus each
+control. The Holm families contain all 10 H and 15 I prespecified comparisons,
+not only the displayed rows.}
+\label{tab:paired}
+\small
+\begin{tabular}{llrrr}
+\toprule
+Cohort & Comparator & Fix / harm & Net & Holm $p$ \\
+\midrule
+H & Matched fact-deprived text & 15 / 1 & +14 & 0.002594 \\
+H & Candidate-shuffled graph & 17 / 2 & +15 & 0.003279 \\
+H & Two-LLM RRF & 26 / 9 & +17 & 0.023952 \\
+H & Top-link support & 13 / 14 & $-1$ & 1 \\
+I & Matched adapted text & 24 / 5 & +19 & 0.003277 \\
+I & Adapted shuffled graph & 21 / 5 & +16 & 0.013717 \\
+I & Two-LLM RRF & 37 / 19 & +18 & 0.111207 \\
+I & Top-link support & 20 / 25 & $-5$ & 1 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+On H, 20,000 paired-query bootstrap resamples gave Bonferroni-adjusted
+approximate percentage-point intervals of $[1.042,6.771]$ relative to matched
+text and $[-4.167,3.646]$ relative to top-link. On I the analogous intervals
+are $[0.5208,4.6875]$ and $[-3.2552,1.8229]$. Resampling assumes an
+appropriate query-sampling interpretation and is not a finite-population
+guarantee. Holm controls each fixed within-cohort family, not every adaptive
+choice made earlier in the research history.
+
+For a fixed comparison of $g$ against $t$, $F$ is the number of
+$g$-only hits and $B$ the number of $t$-only hits. Under an exchangeable
+null on the $F+B$ discordant queries, its one-sided exact tail is
+\begin{equation}\label{eq:exact}
+ p_{g>t}=\sum_{k=F}^{F+B}\binom{F+B}{k}2^{-(F+B)},
+ \quad p_{g>t}=1\ \text{if }F+B=0.
+\end{equation}
+Holm adjustment was applied to every raw test in each prespecified family,
+including comparisons not printed in Table~\ref{tab:paired}. Paired bootstrap
+resamples share the same query indices across all arms (20,000 draws per
+cohort); approximate Bonferroni simultaneous 95\% intervals are reported
+where relevant. Neither computation removes dependence induced by the
+earlier iterative research process.
+
+The frozen 20-item pools contain labeled answers for 354/384 H queries and
+704/768 I queries, but this label oracle is not a deployed policy. H required
+384 shared plans, 768 ranking requests and 7,680 local Qwen evaluations;
+three rankings failed strict parsing and remain in the denominator. I had
+three strict ranking parse failures among 1,536 ranking requests, also
+retained. These are query-level evaluations, not independent response-level
+samples or a matched end-to-end cost comparison.
+
+\section{Equal-fact alternatives and decision opportunities}
+After H and I became exposed, we serialized the cached reference options,
+their weights, typed and directed edges, both rankings, and candidate order
+as parseable text. A separate label-blind parser reproduced \emph{all} top-link
+choices on H (384/384) and I (768/768). Independent scalar reconstruction of
+the six original relation columns matched 46,080 H and 92,160 I stored
+numbers within $10^{-10}$. This establishes that these particular facts and
+the rule can be implemented from textual serialization; relabeling the same
+columns as ``text'' would not establish an alternative learner.
+
+We therefore also tested an H-informed, post hoc structured-text learner:
+18 lossy token statistics parsed from the same cached relation facts, combined
+with the original 12 semantic features, fitted with the original 768 query
+labels and LambdaRank setup. On \emph{already exposed H}, it hits 278/384,
+the same as graph fusion (4 fixes, 4 harms; 358 identical choices), while
+top-link hits 279/384. This is a development result, not proof of equivalence,
+equal costs, an equal-token LLM text baseline, or independent validation.
+For exploratory MAG author retrieval, the author-field text join copied the
+graph path's decisions on linkable TRAIN queries. MAG has neither an independent
+task evaluation here nor a transferable superiority result.
+
+Identical action policies cannot differ in Hit@1 under any answer labels.
+Before scoring a new comparison, label-blind action disagreement is therefore
+a necessary check for decision opportunity, not a significance test. A frozen
+384-ID prospective Amazon TRAIN queue exists, but no queries in that queue
+have generated scored actions: the launch preflight stopped before query-text
+access and external calls. We do not include it in any result table.
+
+\paragraph{Where are the gains?}
+An exploratory analysis defined graph activation after observing H/I as a
+maximum-support domain smaller than 20. Activation occurs for 55/384 H and
+94/768 I queries. On H, the 18-feature graph fusion fixes 13 and harms zero
+relative to text within the 55 activated queries; the remaining queries
+account for a net gain of one. On I, the adapted method fixes 17 and harms
+one relative to its adapted text arm within the 94 activated queries, with
+a net gain of three outside. This accounting describes the already exposed
+samples; it is not a prespecified subgroup test or proof that a particular
+edge caused a successful prediction. On the same activated sets, top-link
+hits 37/55 H and 67/94 I, versus the respective fusion methods' 32/55 and
+59/94. An informative activated subset can coexist with an inferior learned
+decision policy.
+
+\paragraph{Why is the rule hard to beat?}
+Only 145 of the 768 queries used to fit the original fusion have a reference
+mention; 111 have nonconstant graph features, and 58 have both labeled
+positive and negative candidates within the maximum-support domain. On
+exposed I, the adapted fusion and top-link choose different products on
+197 queries, but only 45 choices change Hit@1 status (20 favorable to fusion,
+25 favorable to the rule). These counts are consistent with scarce
+decision-relevant supervision and harmful overrides, but do not isolate
+training coverage from representation, support-first policy, or distribution
+effects. They are not an additional evaluation set.
+
+\section{Limitations and research status}
+\paragraph{How the three questions interact.}
+An ablation comparison holds supervision, candidate pool and much of the
+scoring stack constant while removing graph-derived columns. Its positive
+paired outcome identifies a benefit of that feature block \emph{against
+that fact-deprived arm} on the frozen queries. It does not identify
+whether the information can be encoded as text, whether an LLM can use
+the encoded facts under a fixed token budget, or whether a different
+decision policy would have done better with the same facts. The rule
+replay shows constructively that textual serialization can reproduce a
+specific deterministic decision. The H-informed text learner goes beyond
+relabeling graph columns, but is post hoc and still not a prospective
+equal-resource study. Finally, top-link is a graph-using rule; its higher
+hit count is a failure of the \emph{learned policy's superiority claim},
+not evidence that graph relations are useless. This separation is the
+empirical point of the paper: the strongest observation and the strongest
+counterexample address different questions.
+
+\paragraph{Mechanistic interpretation is conditional.}
+Under the observed link options and fixed pool, a support domain often
+retains a labeled answer. But a graph edge is merely an existence proxy:
+related accessories, alternate products and incompatible items can all
+be linked. The I action accounting makes the bottleneck concrete. The
+adapted learner and top-link disagree on 197/768 selected candidates,
+yet their benchmark hit states differ on only 45 queries. To beat the
+rule by selecting the learner selectively, one would need to recover
+enough of its 20 unique fixes without triggering its 25 unique harms;
+this is a sample accounting condition, not an identified way to build
+such a selector. Enlarging candidates, improving reference linking,
+training a role-aware score and imposing a support-first constraint
+would modify different components. None has been shown in this study
+to reverse the frozen strong-rule comparison under new evaluation.
+
+These comparisons isolate an information increment against \emph{fact-deprived}
+text, not against a trained text system with identical relation facts and
+matched indexing, latency, peak memory and price. Post hoc cached-feature
+and paired construction microbenchmarks exclude retrieval, model loading,
+reference API requests and Qwen; they cannot establish deployment efficiency.
+Top-link uses graph facts too, and its stronger outcomes do not mean that a
+text-only retriever dominates graph retrieval. The observations are about
+fixed-pool selection, not full-corpus end-to-end STaRK performance.
+
+H/I are exposed TRAIN cohorts under distinct prespecified families, not
+independent final confirmation; synthetic qrels are not human semantic
+judgments. A prepared blind review of H/I decisions has no completed human
+labels. The new cohort remains unscored pending enforceable service spending
+limits, frozen matched-resource protocol, source and provenance checks, and
+the label-blind action gate. Future work must accept negative outcomes,
+assess robustness beyond a single shuffle seed, compare equal-fact methods
+on new queries with matched end-to-end resources, and complete human review.
+The current evidence archive is locally auditable but is not yet an approved,
+redistributable public reproduction package.
+
+\section{Conclusion}
+Relational features add value over text without relation facts in the two
+studied Amazon settings, but that increment does not establish a uniquely
+necessary graph representation or a learned decision advantage over the
+shared-input top-link rule. The three claims require distinct controls.
+Until new-cohort scoring, matched end-to-end comparison and semantic review
+are complete, this is a bounded empirical working draft rather than an
+independently confirmed or submission-ready superiority claim.
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\appendix
+\section{Evidence roles and reproducibility notes}
+The present manuscript is a condensed English review draft of the current
+Chinese working paper, not a second experimental result. Table~\ref{tab:roles}
+prevents query counts from being reused as independent confirmations. Earlier
+validation experiments tested different repair policies and are not pooled
+with H/I. All numerical claims in Tables~\ref{tab:main} and~\ref{tab:paired}
+refer to archived frozen actions and query-level results. Independent readers
+need access to those records and authorized data before claiming a full
+reproduction; a local consistency check is not independent retraining.
+
+\begin{table}[h]
+\centering
+\caption{Data-use roles. Counts refer to queries, not LLM calls or candidate
+products. No official TEST or human-query answers are evaluated.}
+\label{tab:roles}
+\small
+\begin{tabular}{lrl}
+\toprule
+Set & Queries & Use and evidential status \\
+\midrule
+A/B/F (TRAIN) & 768 & Original fusion fitting \\
+C/D/E (TRAIN) & 384 & Repeated development; exposed \\
+H (TRAIN) & 384 & Frozen 18D evaluation; now exposed \\
+S (TRAIN) & 1,024 & Adapted semantic encoder training \\
+I (TRAIN) & 768 & Distinct frozen 20D evaluation; now exposed \\
+Prospective ID queue (TRAIN) & 384 & IDs frozen; no scored actions \\
+Official TEST / human & 1,642 / 81 & Not used for reported results \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The model comparison was fixed before H query preparation, with 384 plans
+and 768 rankings budgeted; the adapted comparison on I specified 768 plans
+and 1,536 rankings. Strict parsing failures stay in denominators, with
+available ranks reused consistently across same-cohort arms. The exact
+one-sided paired tests compare fixes to harms across query IDs, with Holm
+adjustment within each frozen family. A same-result action is never an
+additional successful replication. The structured-text arm, activation
+subgroups, and the MAG author-field join are explicitly post hoc or TRAIN
+developmental; none enter the original H/I comparison families. The staged
+prospective ID queue does not permit retroactive selection or scoring. Its
+zero-call preflight and lack of a metered cost stop prevent us from claiming
+that confirmation has started.
+
+Publication requires separate review of style-year rules, author approvals,
+data/service-output redistribution rights, artifact privacy, checklist
+answers and the eventual scientific claim. Anonymous styling and local
+typesetting do not constitute a conference submission.
+\input{neurips_rethink_appendix}
+\end{document}

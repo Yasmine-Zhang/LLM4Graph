@@ -106,6 +106,11 @@ class GitHubCopilotClient(BaseClient):
         if self._sdk_client is not None:
             return
 
+        if self.base_url != self.BASE_URL:
+            raise ValueError(
+                "Custom base_url is not supported by this Copilot SDK adapter"
+            )
+
         self._state_dir = tempfile.TemporaryDirectory(prefix="llm4graph-copilot-")
         client_options = {
             "use_logged_in_user": not bool(self.github_token),
@@ -115,8 +120,6 @@ class GitHubCopilotClient(BaseClient):
         }
         if self.github_token:
             client_options["github_token"] = self.github_token
-        if self.base_url:
-            client_options["base_url"] = self.base_url
 
         self._sdk_client = CopilotClient(**client_options)
         try:
